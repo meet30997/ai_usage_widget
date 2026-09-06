@@ -95,4 +95,81 @@ final class UsageManagerTests: XCTestCase {
         XCTAssertEqual(data.resets[1].index, 2)
         XCTAssertEqual(data.resets[1].name, "Bonus reset")
     }
+
+    func testApplyRateLimitsMapsCurrentCodexWindowsByDuration() {
+        let samplePayload: [String: Any] = [
+            "primary": [
+                "usedPercent": 47,
+                "windowDurationMins": 300,
+                "resetsAt": 1_788_691_661
+            ],
+            "secondary": [
+                "usedPercent": 28,
+                "windowDurationMins": 10_080,
+                "resetsAt": 1_788_768_725
+            ]
+        ]
+
+        var data = CodexUsageData()
+        CodexDataReader.shared.applyRateLimits(samplePayload, to: &data)
+
+        XCTAssertEqual(data.fiveHourLimitUsedPct, 47)
+        XCTAssertEqual(data.weeklyLimitUsedPct, 28)
+        XCTAssertFalse(data.fiveHourLimitResetText.isEmpty)
+        XCTAssertFalse(data.weeklyLimitResetText.isEmpty)
+    }
+
+    func testApplyRateLimitsSupportsSessionLogFieldNames() {
+        let samplePayload: [String: Any] = [
+            "primary": [
+                "used_percent": 12.5,
+                "window_minutes": 300,
+                "resets_at": 1_788_691_661
+            ],
+            "secondary": [
+                "used_percent": 63.5,
+                "window_minutes": 10_080,
+                "resets_at": 1_788_768_725
+            ]
+        ]
+
+        var data = CodexUsageData()
+        CodexDataReader.shared.applyRateLimits(samplePayload, to: &data)
+
+        XCTAssertEqual(data.fiveHourLimitUsedPct, 12.5)
+        XCTAssertEqual(data.weeklyLimitUsedPct, 63.5)
+    }
+
+    func testRateLimitDurationOverridesPrimarySecondaryPosition() {
+        let samplePayload: [String: Any] = [
+            "primary": [
+                "usedPercent": 70,
+                "windowDurationMins": 10_080
+            ],
+            "secondary": [
+                "usedPercent": 20,
+                "windowDurationMins": 300
+            ]
+        ]
+
+        var data = CodexUsageData()
+        CodexDataReader.shared.applyRateLimits(samplePayload, to: &data)
+
+        XCTAssertEqual(data.fiveHourLimitUsedPct, 20)
+        XCTAssertEqual(data.weeklyLimitUsedPct, 70)
+    }
+
+    func testMenuBarUsesWeeklyPercentUsedForBothProviders() {
+        var claude = ClaudeUsageData()
+        claude.hasLiveStatus = true
+        claude.sessionUsedPct = 81
+        claude.weekAllModelsPct = 36
+
+        var codex = CodexUsageData()
+        codex.fiveHourLimitUsedPct = 74
+        codex.weeklyLimitUsedPct = 29
+
+        XCTAssertEqual(UsageManager.claudeWeeklyMenuBarText(for: claude), "36%")
+        XCTAssertEqual(UsageManager.codexWeeklyMenuBarText(for: codex), "29%")
+    }
 }

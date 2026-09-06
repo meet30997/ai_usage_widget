@@ -69,7 +69,8 @@ class CodexDataReader {
         // 3. Query the same Codex account service used by the `/status` and
         // `/usage` screens. Fall back to the latest real CLI session snapshot
         // when the local app-server is unavailable.
-        if !applyLiveAccountStatus(to: &data) {
+        _ = applyLiveAccountStatus(to: &data)
+        if data.fiveHourLimitUsedPct == nil || data.weeklyLimitUsedPct == nil {
             applyLatestRateLimits(to: &data)
         }
 
@@ -194,20 +195,10 @@ class CodexDataReader {
                       let payload = root["payload"] as? [String: Any],
                       let rateLimits = payload["rate_limits"] as? [String: Any] else { continue }
 
-                for key in ["primary", "secondary"] {
-                    guard let window = rateLimits[key] as? [String: Any],
-                          let used = (window["used_percent"] as? NSNumber)?.doubleValue,
-                          let resetTimestamp = (window["resets_at"] as? NSNumber)?.doubleValue else { continue }
-
-                    let minutes = (window["window_minutes"] as? NSNumber)?.intValue ?? 0
-                    let resetText = Self.formatResetDate(Date(timeIntervalSince1970: resetTimestamp))
-
-                    if minutes >= 10_080 || data.weeklyLimitUsedPct == nil {
-                        data.weeklyLimitUsedPct = max(0, min(100, used))
-                        data.weeklyLimitResetText = "resets \(resetText)"
-                    }
+                applyRateLimits(rateLimits, to: &data, onlyIfMissing: true)
+                if data.fiveHourLimitUsedPct != nil && data.weeklyLimitUsedPct != nil {
+                    return
                 }
-                return
             }
         }
     }
@@ -287,24 +278,22 @@ class CodexDataReader {
                       let result = root["result"] as? [String: Any] else { continue }
 
                 if let rateLimits = result["rateLimits"] as? [String: Any] {
-                    if let primary = rateLimits["primary"] as? [String: Any] {
-                        applyRateLimitWindow(primary, to: &data)
-                    }
+                    applyRateLimits(rateLimits, to: &data)
                     if let planType = rateLimits["planType"] as? String, !planType.isEmpty {
                         data.accountPlan = planType.capitalized
                     }
                 } else if let rateLimitsByLimitId = result["rateLimitsByLimitId"] as? [String: Any],
                           let codexLimits = rateLimitsByLimitId["codex"] as? [String: Any] {
-                    if let primary = codexLimits["primary"] as? [String: Any] {
-                        applyRateLimitWindow(primary, to: &data)
-                    }
+                    applyRateLimits(codexLimits, to: &data)
                     if let planType = codexLimits["planType"] as? String, !planType.isEmpty {
                         data.accountPlan = planType.capitalized
                     }
                 }
 
                 applyResetCredits(result["rateLimitResetCredits"], to: &data)
-                return data.weeklyLimitUsedPct != nil || data.availableResetCreditsCount != nil
+                return data.fiveHourLimitUsedPct != nil
+                    || data.weeklyLimitUsedPct != nil
+                    || data.availableResetCreditsCount != nil
             }
         } catch {
             if task.isRunning { task.terminate() }
@@ -312,12 +301,72 @@ class CodexDataReader {
         return false
     }
 
-    private func applyRateLimitWindow(_ window: [String: Any], to data: inout CodexUsageData) {
-        guard let used = (window["usedPercent"] as? NSNumber)?.doubleValue else { return }
-        data.weeklyLimitUsedPct = max(0, min(100, used))
-        if let resetTimestamp = (window["resetsAt"] as? NSNumber)?.doubleValue {
-            data.weeklyLimitResetText = "resets \(Self.formatResetDate(Date(timeIntervalSince1970: resetTimestamp)))"
+    func applyRateLimits(
+        _ value: Any?,
+        to data: inout CodexUsageData,
+        onlyIfMissing: Bool = false
+    ) {
+        guard let rateLimits = value as? [String: Any] else { return }
+
+        if let primary = rateLimits["primary"] as? [String: Any] {
+            applyRateLimitWindow(primary, defaultWindow: .fiveHour, to: &data, onlyIfMissing: onlyIfMissing)
         }
+        if let secondary = rateLimits["secondary"] as? [String: Any] {
+            applyRateLimitWindow(secondary, defaultWindow: .weekly, to: &data, onlyIfMissing: onlyIfMissing)
+        }
+    }
+
+    private enum RateLimitWindowKind {
+        case fiveHour
+        case weekly
+    }
+
+    private func applyRateLimitWindow(
+        _ window: [String: Any],
+        defaultWindow: RateLimitWindowKind,
+        to data: inout CodexUsageData,
+        onlyIfMissing: Bool
+    ) {
+        guard let used = number(in: window, camelCase: "usedPercent", snakeCase: "used_percent")?.doubleValue else {
+            return
+        }
+
+        let durationMinutes = number(
+            in: window,
+            camelCase: "windowDurationMins",
+            snakeCase: "window_minutes"
+        )?.intValue
+        let kind: RateLimitWindowKind
+        if let durationMinutes {
+            kind = durationMinutes >= 10_080 ? .weekly : .fiveHour
+        } else {
+            kind = defaultWindow
+        }
+
+        let resetTimestamp = number(in: window, camelCase: "resetsAt", snakeCase: "resets_at")?.doubleValue
+        let resetText = resetTimestamp.map {
+            "resets \(Self.formatResetDate(Date(timeIntervalSince1970: $0)))"
+        } ?? ""
+        let clampedUsed = max(0, min(100, used))
+
+        switch kind {
+        case .fiveHour:
+            guard !onlyIfMissing || data.fiveHourLimitUsedPct == nil else { return }
+            data.fiveHourLimitUsedPct = clampedUsed
+            data.fiveHourLimitResetText = resetText
+        case .weekly:
+            guard !onlyIfMissing || data.weeklyLimitUsedPct == nil else { return }
+            data.weeklyLimitUsedPct = clampedUsed
+            data.weeklyLimitResetText = resetText
+        }
+    }
+
+    private func number(
+        in dictionary: [String: Any],
+        camelCase: String,
+        snakeCase: String
+    ) -> NSNumber? {
+        (dictionary[camelCase] as? NSNumber) ?? (dictionary[snakeCase] as? NSNumber)
     }
 
     func applyResetCredits(_ value: Any?, to data: inout CodexUsageData) {

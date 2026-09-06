@@ -183,6 +183,27 @@ struct CodexStatusCard: View {
                 
                 Divider().opacity(0.2)
 
+                if let usedPct = codex.fiveHourLimitUsedPct {
+                    ProgressBarRow(
+                        label: "5-hour limit",
+                        valueText: String(format: "%.0f%% used", usedPct),
+                        progressPct: usedPct,
+                        resetText: codex.fiveHourLimitResetText,
+                        accentGradient: progressGradient(usedPct: usedPct)
+                    )
+                } else {
+                    HStack {
+                        Text("5-hour limit")
+                            .font(.system(size: 11, weight: .semibold))
+                        Spacer()
+                        Text("No snapshot recorded")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Divider().opacity(0.2)
+
                 if let usedPct = codex.weeklyLimitUsedPct {
                     ProgressBarRow(
                         label: "Weekly limit",
@@ -334,4 +355,3 @@ func progressTextColor(usedPct: Double) -> Color {
         return MacTheme.success
     }
 }
-

@@ -36,7 +36,9 @@ struct CodexUsageData {
     var tokensIn1WeekWindow: Int64 = 0
     var sessionsIn1WeekWindow: Int = 0
 
-    // Latest rate-limit snapshot emitted by the local Codex CLI session logs.
+    // Latest subscription rate-limit windows reported by Codex.
+    var fiveHourLimitUsedPct: Double?
+    var fiveHourLimitResetText: String = ""
     var weeklyLimitUsedPct: Double?
     var weeklyLimitResetText: String = ""
     var resets: [CodexResetItem] = []

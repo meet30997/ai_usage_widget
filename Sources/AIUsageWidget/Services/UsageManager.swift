@@ -124,25 +124,26 @@ class UsageManager: ObservableObject {
             return "\(count)"
         }
     }
+
+    static func claudeWeeklyMenuBarText(for data: ClaudeUsageData) -> String? {
+        if data.hasLiveStatus {
+            return "\(Int(round(data.weekAllModelsPct)))%"
+        } else if data.grandTotalTokens > 0 {
+            return "Expired"
+        }
+        return nil
+    }
+
+    static func codexWeeklyMenuBarText(for data: CodexUsageData) -> String? {
+        guard let weekly = data.weeklyLimitUsedPct else { return nil }
+        return "\(Int(round(weekly)))%"
+    }
     
     var menuBarImage: NSImage {
         let total = codexData.todayTokens + claudeData.todayTokens
         let totalStr = Self.formatTokens(total)
-        let claudeText: String?
-        if claudeData.hasLiveStatus {
-            claudeText = "\(Int(round(claudeData.sessionUsedPct)))%"
-        } else if claudeData.grandTotalTokens > 0 {
-            claudeText = "Expired"
-        } else {
-            claudeText = nil
-        }
-        
-        let codexText: String?
-        if let weekly = codexData.weeklyLimitUsedPct {
-            codexText = "\(Int(round(weekly)))%"
-        } else {
-            codexText = nil
-        }
+        let claudeText = Self.claudeWeeklyMenuBarText(for: claudeData)
+        let codexText = Self.codexWeeklyMenuBarText(for: codexData)
         
         return BrandAssets.shared.createMenuBarImage(
             totalTokensText: totalStr,
@@ -162,16 +163,12 @@ class UsageManager: ObservableObject {
         
         var parts: [String] = [tokensStr]
         
-        if claudeData.hasLiveStatus {
-            let claudePct = Int(round(claudeData.sessionUsedPct))
-            parts.append("🧠 \(claudePct)%")
-        } else if claudeData.grandTotalTokens > 0 {
-            parts.append("🧠 Expired")
+        if let claudeText = Self.claudeWeeklyMenuBarText(for: claudeData) {
+            parts.append("🧠 \(claudeText)")
         }
         
-        if let codexWeekly = codexData.weeklyLimitUsedPct {
-            let codexPct = Int(round(codexWeekly))
-            parts.append("💻 \(codexPct)%")
+        if let codexText = Self.codexWeeklyMenuBarText(for: codexData) {
+            parts.append("💻 \(codexText)")
         }
         
         return parts.joined(separator: "  ")

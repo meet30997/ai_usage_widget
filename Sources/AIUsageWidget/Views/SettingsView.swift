@@ -32,7 +32,7 @@ struct SettingsView: View {
                                 Text("Show live quota percentages in Menu Bar")
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundColor(.primary)
-                                Text("Shows Claude session % (C: XX%) and Codex weekly limit % (X: XX%)")
+                                Text("Shows weekly percent used for Claude (C: XX%) and Codex (X: XX%)")
                                     .font(.system(size: 9.5, weight: .regular))
                                     .foregroundColor(.secondary)
                             }
@@ -103,7 +103,7 @@ struct SettingsView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("AI Usage Tracker for macOS")
                                     .font(.system(size: 11, weight: .bold))
-                                Text("Version 1.0.0 (Native SwiftUI & SQLite)")
+                                Text("Version \(appVersion) (Native SwiftUI & SQLite)")
                                     .font(.system(size: 9.5, weight: .medium, design: .monospaced))
                                     .foregroundColor(.secondary)
                             }
@@ -143,5 +143,9 @@ struct SettingsView: View {
         FileManager.default.fileExists(
             atPath: NSString(string: path).expandingTildeInPath
         )
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
     }
 }
