@@ -26,6 +26,8 @@ struct MainPopoverView: View {
                     ClaudeDetailView(manager: manager)
                 case .codex:
                     CodexDetailView(manager: manager)
+                case .antigravity:
+                    AntigravityDetailView(manager: manager)
                 case .models:
                     ModelBreakdownView(manager: manager)
                 case .settings:

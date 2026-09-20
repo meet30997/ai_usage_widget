@@ -7,6 +7,7 @@ class UsageManager: ObservableObject {
     
     @Published var claudeData = ClaudeUsageData()
     @Published var codexData = CodexUsageData()
+    @Published var antigravityData = AntigravityUsageData()
     @Published var combinedDailyPoints: [CombinedDailyPoint] = []
     @Published var lastRefreshed: Date = Date()
     @Published var isRefreshing: Bool = false
@@ -45,11 +46,25 @@ class UsageManager: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let claude = ClaudeDataReader.shared.fetchUsageData()
             let codex = CodexDataReader.shared.fetchUsageData()
-            let combined = Self.computeCombinedPoints(claude: claude, codex: codex)
+            let antigravity = AntigravityDataReader.shared.fetchUsageData()
+            let combined = Self.computeCombinedPoints(claude: claude, codex: codex, antigravity: antigravity)
             
             DispatchQueue.main.async {
                 self?.claudeData = claude
                 self?.codexData = codex
+                if antigravity.hasLiveStatus || self?.antigravityData.hasLiveStatus != true {
+                    self?.antigravityData = antigravity
+                } else {
+                    var retained = antigravity
+                    retained.quotaWindows = self?.antigravityData.quotaWindows ?? []
+                    retained.accountEmail = self?.antigravityData.accountEmail ?? ""
+                    retained.accountPlan = self?.antigravityData.accountPlan ?? ""
+                    retained.liveSource = self?.antigravityData.liveSource ?? ""
+                    retained.quotaFetchedAt = self?.antigravityData.quotaFetchedAt
+                    retained.liveError = "Last live quota snapshot; open Antigravity to refresh"
+                    retained.hasLiveStatus = false
+                    self?.antigravityData = retained
+                }
                 self?.combinedDailyPoints = combined
                 self?.lastRefreshed = Date()
                 self?.isRefreshing = false
@@ -68,6 +83,7 @@ class UsageManager: ObservableObject {
     static func computeCombinedPoints(
         claude: ClaudeUsageData,
         codex: CodexUsageData,
+        antigravity: AntigravityUsageData = AntigravityUsageData(),
         now: Date = Date(),
         calendar: Calendar = .current
     ) -> [CombinedDailyPoint] {
@@ -81,6 +97,8 @@ class UsageManager: ObservableObject {
         var claudeSessionsMap: [String: Int] = [:]
         var codexTokensMap: [String: Int64] = [:]
         var codexSessionsMap: [String: Int] = [:]
+        var antigravityTokensMap: [String: Int64] = [:]
+        var antigravitySessionsMap: [String: Int] = [:]
         
         for item in claude.dailyModelTokens {
             claudeTokensMap[item.date, default: 0] += item.totalTokens
@@ -91,6 +109,10 @@ class UsageManager: ObservableObject {
         for item in codex.dailyUsage {
             codexTokensMap[item.date, default: 0] += item.tokensUsed
             codexSessionsMap[item.date, default: 0] += item.sessionCount
+        }
+        for item in antigravity.dailyUsage {
+            antigravityTokensMap[item.date, default: 0] += item.tokensUsed
+            antigravitySessionsMap[item.date, default: 0] += item.sessionCount
         }
         
         // Generate the last 14 calendar dates. Future-dated or malformed cache
@@ -107,8 +129,10 @@ class UsageManager: ObservableObject {
                 date: date,
                 codexTokens: codexTokensMap[date] ?? 0,
                 claudeTokens: claudeTokensMap[date] ?? 0,
+                antigravityTokens: antigravityTokensMap[date] ?? 0,
                 codexSessions: codexSessionsMap[date] ?? 0,
-                claudeSessions: claudeSessionsMap[date] ?? 0
+                claudeSessions: claudeSessionsMap[date] ?? 0,
+                antigravitySessions: antigravitySessionsMap[date] ?? 0
             )
         }
     }
@@ -138,23 +162,30 @@ class UsageManager: ObservableObject {
         guard let weekly = data.weeklyLimitUsedPct else { return nil }
         return "\(Int(round(weekly)))%"
     }
+
+    static func antigravityWeeklyMenuBarText(for data: AntigravityUsageData) -> String? {
+        guard data.hasLiveStatus, let weekly = data.weeklyUsedPercent else { return nil }
+        return "\(Int(round(weekly)))%"
+    }
     
     var menuBarImage: NSImage {
-        let total = codexData.todayTokens + claudeData.todayTokens
+        let total = codexData.todayTokens + claudeData.todayTokens + antigravityData.todayTokens
         let totalStr = Self.formatTokens(total)
         let claudeText = Self.claudeWeeklyMenuBarText(for: claudeData)
         let codexText = Self.codexWeeklyMenuBarText(for: codexData)
+        let antigravityText = Self.antigravityWeeklyMenuBarText(for: antigravityData)
         
         return BrandAssets.shared.createMenuBarImage(
             totalTokensText: totalStr,
             claudeText: claudeText,
             codexText: codexText,
+            antigravityText: antigravityText,
             showQuota: showQuotaInMenuBar
         )
     }
     
     var menuBarTitle: String {
-        let total = codexData.todayTokens + claudeData.todayTokens
+        let total = codexData.todayTokens + claudeData.todayTokens + antigravityData.todayTokens
         let tokensStr = "⚡️ \(Self.formatTokens(total))"
         
         guard showQuotaInMenuBar else {
@@ -169,6 +200,9 @@ class UsageManager: ObservableObject {
         
         if let codexText = Self.codexWeeklyMenuBarText(for: codexData) {
             parts.append("💻 \(codexText)")
+        }
+        if let antigravityText = Self.antigravityWeeklyMenuBarText(for: antigravityData) {
+            parts.append("🚀 \(antigravityText)")
         }
         
         return parts.joined(separator: "  ")

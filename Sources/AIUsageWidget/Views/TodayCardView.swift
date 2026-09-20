@@ -20,6 +20,9 @@ struct TodayCardView: View {
             
             // 2. Codex Official Live Status Card
             CodexStatusCard(codex: manager.codexData)
+
+            // 3. Antigravity local status card
+            AntigravityStatusCard(antigravity: manager.antigravityData)
         }
     }
 }

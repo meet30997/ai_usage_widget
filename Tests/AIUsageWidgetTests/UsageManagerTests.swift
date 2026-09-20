@@ -172,4 +172,96 @@ final class UsageManagerTests: XCTestCase {
         XCTAssertEqual(UsageManager.claudeWeeklyMenuBarText(for: claude), "36%")
         XCTAssertEqual(UsageManager.codexWeeklyMenuBarText(for: codex), "29%")
     }
+
+    func testAntigravityQuotaSummaryMapsFamiliesAndCadences() {
+        let payload: [String: Any] = [
+            "response": [
+                "groups": [
+                    [
+                        "displayName": "Gemini Models",
+                        "buckets": [
+                            ["bucketId": "five_hour", "remainingFraction": 0.65, "resetTime": "2026-09-20T12:00:00Z"],
+                            ["bucketId": "weekly", "remainingFraction": 0.25, "description": "resets Sunday"]
+                        ]
+                    ],
+                    [
+                        "displayName": "Claude and GPT models",
+                        "buckets": [
+                            ["displayName": "Weekly limit", "remainingFraction": 0.50]
+                        ]
+                    ]
+                ]
+            ]
+        ]
+
+        var data = AntigravityUsageData()
+        XCTAssertTrue(AntigravityDataReader.shared.applyQuotaSummary(payload, source: "fixture", to: &data))
+        XCTAssertTrue(data.hasLiveStatus)
+        XCTAssertEqual(data.quotaWindows.count, 3)
+        XCTAssertEqual(data.weeklyUsedPercent, 75)
+        XCTAssertEqual(UsageManager.antigravityWeeklyMenuBarText(for: data), "75%")
+        XCTAssertTrue(data.quotaWindows.contains { $0.family == "Claude + GPT" && $0.cadence == .weekly })
+        XCTAssertEqual(data.quotaWindows.first { $0.family == "Gemini" && $0.cadence == .weekly }?.remainingPercent, 25)
+        XCTAssertEqual(data.quotaWindows.first { $0.family == "Gemini" && $0.cadence == .fiveHour }?.remainingPercent, 65)
+    }
+
+    func testAntigravityMenuBarRequiresFreshWeeklyQuota() {
+        var data = AntigravityUsageData()
+        data.quotaWindows = [
+            AntigravityQuotaWindow(family: "Gemini", cadence: .fiveHour, remainingPercent: 20, resetText: "")
+        ]
+        data.hasLiveStatus = true
+        XCTAssertNil(UsageManager.antigravityWeeklyMenuBarText(for: data))
+
+        data.quotaWindows.append(
+            AntigravityQuotaWindow(family: "Gemini", cadence: .weekly, remainingPercent: 57.6, resetText: "")
+        )
+        XCTAssertEqual(UsageManager.antigravityWeeklyMenuBarText(for: data), "42%")
+        data.hasLiveStatus = false
+        XCTAssertNil(UsageManager.antigravityWeeklyMenuBarText(for: data))
+    }
+
+    func testCombinedPointsIncludeAntigravityUsage() throws {
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-07-19T12:00:00Z"))
+        var antigravity = AntigravityUsageData()
+        antigravity.dailyUsage = [
+            AntigravityDailyUsage(date: "2026-07-19", sessionCount: 2, tokensUsed: 123)
+        ]
+        let points = UsageManager.computeCombinedPoints(
+            claude: ClaudeUsageData(),
+            codex: CodexUsageData(),
+            antigravity: antigravity,
+            now: now,
+            calendar: utcCalendar
+        )
+
+        XCTAssertEqual(points.last?.antigravityTokens, 123)
+        XCTAssertEqual(points.last?.antigravitySessions, 2)
+        XCTAssertEqual(points.last?.totalTokens, 123)
+    }
+
+    func testAntigravityLocalIntegrationWhenRequested() throws {
+        guard ProcessInfo.processInfo.environment["ANTIGRAVITY_INTEGRATION"] == "1" else {
+            throw XCTSkip("Set ANTIGRAVITY_INTEGRATION=1 while Antigravity is running")
+        }
+        let data = AntigravityDataReader.shared.fetchUsageData()
+        XCTAssertTrue(data.hasLiveStatus, data.liveError)
+        XCTAssertEqual(data.liveSource, "agy CLI")
+        XCTAssertFalse(data.quotaWindows.isEmpty)
+        XCTAssertTrue(data.quotaWindows.contains { $0.cadence == .weekly })
+        XCTAssertTrue(data.quotaWindows.contains { $0.cadence == .fiveHour })
+        XCTAssertGreaterThan(data.totalTokens, 0, data.historyDiagnostic)
+        XCTAssertFalse(data.modelUsage.isEmpty, data.historyDiagnostic)
+        let recentCutoff = Calendar.current.date(byAdding: .day, value: -14, to: Date())!
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        XCTAssertTrue(
+            data.dailyUsage.contains { item in
+                guard let date = formatter.date(from: item.date) else { return false }
+                return date >= recentCutoff
+            },
+            data.historyDiagnostic
+        )
+    }
 }

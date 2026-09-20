@@ -32,7 +32,7 @@ struct SettingsView: View {
                                 Text("Show live quota percentages in Menu Bar")
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundColor(.primary)
-                                Text("Shows weekly percent used for Claude (C: XX%) and Codex (X: XX%)")
+                                Text("Shows weekly percent used for Claude, Codex, and Antigravity")
                                     .font(.system(size: 9.5, weight: .regular))
                                     .foregroundColor(.secondary)
                             }
@@ -87,6 +87,18 @@ struct SettingsView: View {
                             name: "Claude Stats Cache",
                             path: "~/.claude/stats-cache.json",
                             exists: sourceExists("~/.claude/stats-cache.json")
+                        )
+
+                        SourceRow(
+                            name: "Antigravity Conversations",
+                            path: "~/.gemini/antigravity/conversations",
+                            exists: sourceExists("~/.gemini/antigravity/conversations")
+                        )
+
+                        SourceRow(
+                            name: "Antigravity CLI Conversations",
+                            path: "~/.gemini/antigravity-cli/conversations",
+                            exists: sourceExists("~/.gemini/antigravity-cli/conversations")
                         )
                     }
                 }

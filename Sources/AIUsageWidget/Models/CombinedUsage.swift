@@ -5,11 +5,13 @@ struct CombinedDailyPoint: Identifiable {
     let date: String
     let codexTokens: Int64
     let claudeTokens: Int64
+    let antigravityTokens: Int64
     let codexSessions: Int
     let claudeSessions: Int
+    let antigravitySessions: Int
     
     var totalTokens: Int64 {
-        codexTokens + claudeTokens
+        codexTokens + claudeTokens + antigravityTokens
     }
     
     var formattedDate: String {

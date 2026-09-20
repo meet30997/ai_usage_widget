@@ -6,19 +6,25 @@ class BrandAssets {
     
     let claudeRaw: NSImage?
     let codexRaw: NSImage?
+    let antigravityRaw: NSImage?
     
     let claudeIcon14: NSImage?
     let codexIcon14: NSImage?
+    let antigravityIcon14: NSImage?
     
     private init() {
         let claude = Self.loadRawImage(named: "claude_logo") ?? Self.loadRawImage(named: "claude")
         let codex = Self.loadRawImage(named: "openai_logo") ?? Self.loadRawImage(named: "codex")
+        let antigravity = Self.loadRawImage(named: "antigravity_logo")
+            ?? Self.installedApplicationIcon(paths: ["/Applications/Antigravity.app", "/Applications/Antigravity IDE.app"])
         
         self.claudeRaw = claude
         self.codexRaw = codex
+        self.antigravityRaw = antigravity
         
         self.claudeIcon14 = claude != nil ? Self.resizeImage(claude!, targetSize: NSSize(width: 14, height: 14)) : nil
         self.codexIcon14 = codex != nil ? Self.resizeImage(codex!, targetSize: NSSize(width: 14, height: 14)) : nil
+        self.antigravityIcon14 = antigravity != nil ? Self.resizeImage(antigravity!, targetSize: NSSize(width: 14, height: 14)) : nil
     }
     
     private static func loadRawImage(named name: String) -> NSImage? {
@@ -44,6 +50,11 @@ class BrandAssets {
         
         return nil
     }
+
+    private static func installedApplicationIcon(paths: [String]) -> NSImage? {
+        guard let path = paths.first(where: { FileManager.default.fileExists(atPath: $0) }) else { return nil }
+        return NSWorkspace.shared.icon(forFile: path)
+    }
     
     static func resizeImage(_ image: NSImage, targetSize: NSSize) -> NSImage {
         guard targetSize.width > 0 && targetSize.height > 0 && image.size.width > 0 && image.size.height > 0 else {
@@ -66,6 +77,7 @@ class BrandAssets {
         totalTokensText: String,
         claudeText: String?,
         codexText: String?,
+        antigravityText: String?,
         showQuota: Bool
     ) -> NSImage {
         let font = NSFont.monospacedDigitSystemFont(ofSize: 11.5, weight: .bold)
@@ -87,6 +99,10 @@ class BrandAssets {
         
         if showQuota, let xText = codexText {
             elements.append((codexRaw, xText))
+        }
+        if showQuota, let aText = antigravityText {
+            let fallback = NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil)?.withSymbolConfiguration(config)
+            elements.append((antigravityRaw ?? fallback, aText))
         }
         
         let textAttrs: [NSAttributedString.Key: Any] = [

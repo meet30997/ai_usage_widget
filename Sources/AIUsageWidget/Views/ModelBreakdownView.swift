@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct CombinedModelItem: Identifiable {
-    var id: String { modelName }
+    var id: String { "\(agent):\(modelName)" }
     let modelName: String
     let agent: String
     let tokens: Int64
@@ -32,6 +32,16 @@ struct ModelBreakdownView: View {
                 tokens: m.totalTokens,
                 gradient: MacTheme.claudeGradient,
                 primaryColor: MacTheme.claudePrimary
+            ))
+        }
+
+        for m in manager.antigravityData.modelUsage {
+            items.append(CombinedModelItem(
+                modelName: m.modelName,
+                agent: "Antigravity",
+                tokens: m.totalTokens,
+                gradient: MacTheme.antigravityGradient,
+                primaryColor: MacTheme.antigravityPrimary
             ))
         }
         

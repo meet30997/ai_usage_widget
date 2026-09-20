@@ -20,6 +20,14 @@ enum MacTheme {
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
+
+    static let antigravityPrimary = Color(red: 0.36, green: 0.48, blue: 0.98)
+    static let antigravitySecondary = Color(red: 0.67, green: 0.34, blue: 0.95)
+    static let antigravityGradient = LinearGradient(
+        colors: [antigravityPrimary, antigravitySecondary],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
     
     static let accentBlue = Color(red: 0.22, green: 0.52, blue: 0.95)
     static let accentPurple = Color(red: 0.58, green: 0.36, blue: 0.94)

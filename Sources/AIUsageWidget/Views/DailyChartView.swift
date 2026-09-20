@@ -17,6 +17,7 @@ struct DailyChartView: View {
                 HStack(spacing: 10) {
                     LegendItem(gradient: MacTheme.codexGradient, label: "Codex")
                     LegendItem(gradient: MacTheme.claudeGradient, label: "Claude")
+                    LegendItem(gradient: MacTheme.antigravityGradient, label: "Antigravity")
                 }
             }
             .padding(.horizontal, 2)
@@ -51,6 +52,15 @@ struct DailyChartView: View {
                                         Text("Codex: \(UsageManager.formatTokens(hovered.codexTokens))")
                                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                                             .foregroundColor(MacTheme.codexPrimary)
+                                    }
+
+                                    HStack(spacing: 4) {
+                                        Circle()
+                                            .fill(MacTheme.antigravityPrimary)
+                                            .frame(width: 6, height: 6)
+                                        Text("AG: \(UsageManager.formatTokens(hovered.antigravityTokens))")
+                                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                            .foregroundColor(MacTheme.antigravityPrimary)
                                     }
                                     
                                     HStack(spacing: 4) {
@@ -99,6 +109,9 @@ struct DailyChartView: View {
                                         let claudeHeight = point.totalTokens > 0
                                             ? totalHeight * CGFloat(point.claudeTokens) / CGFloat(point.totalTokens)
                                             : 0
+                                        let antigravityHeight = point.totalTokens > 0
+                                            ? totalHeight * CGFloat(point.antigravityTokens) / CGFloat(point.totalTokens)
+                                            : 0
                                         
                                         VStack(spacing: 1.5) {
                                             Spacer(minLength: 0)
@@ -109,6 +122,13 @@ struct DailyChartView: View {
                                                     .fill(MacTheme.claudeGradient)
                                                     .frame(height: max(claudeHeight, 4))
                                                     .shadow(color: MacTheme.claudePrimary.opacity(isHovered ? 0.4 : 0.0), radius: 4)
+                                            }
+
+                                            if point.antigravityTokens > 0 {
+                                                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                                    .fill(MacTheme.antigravityGradient)
+                                                    .frame(height: max(antigravityHeight, 4))
+                                                    .shadow(color: MacTheme.antigravityPrimary.opacity(isHovered ? 0.4 : 0), radius: 4)
                                             }
                                             
                                             // Codex Portion (Green Gradient)

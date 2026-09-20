@@ -5,6 +5,7 @@ enum AppTab: String, CaseIterable, Identifiable {
     case overview = "Overview"
     case claude = "Claude"
     case codex = "Codex"
+    case antigravity = "Antigravity"
     case models = "Models"
     case settings = "Settings"
     
@@ -15,6 +16,7 @@ enum AppTab: String, CaseIterable, Identifiable {
         case .overview: return "square.grid.2x2.fill"
         case .claude: return "brain.head.profile"
         case .codex: return "terminal.fill"
+        case .antigravity: return "sparkles"
         case .models: return "cpu.fill"
         case .settings: return "gearshape.fill"
         }
@@ -24,6 +26,7 @@ enum AppTab: String, CaseIterable, Identifiable {
         switch self {
         case .claude: return BrandAssets.shared.claudeIcon14
         case .codex: return BrandAssets.shared.codexIcon14
+        case .antigravity: return BrandAssets.shared.antigravityIcon14
         default: return nil
         }
     }
@@ -114,17 +117,20 @@ struct HeaderView: View {
             .padding(.top, 10)
             
             // Tab Navigation Pill Selector
-            HStack(spacing: 2) {
-                ForEach(AppTab.allCases) { tab in
-                    GlassSegmentButton(
-                        title: tab.rawValue,
-                        icon: tab.iconName,
-                        brandImage: tab.brandImage,
-                        isSelected: selectedTab == tab
-                    ) {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                            selectedTab = tab
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 2) {
+                    ForEach(AppTab.allCases) { tab in
+                        GlassSegmentButton(
+                            title: tab.rawValue,
+                            icon: tab.iconName,
+                            brandImage: tab.brandImage,
+                            isSelected: selectedTab == tab
+                        ) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                                selectedTab = tab
+                            }
                         }
+                        .frame(minWidth: tab == .antigravity ? 86 : 62)
                     }
                 }
             }
