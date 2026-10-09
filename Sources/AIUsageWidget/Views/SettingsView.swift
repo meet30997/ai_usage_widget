@@ -27,6 +27,18 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                             .tracking(0.5)
 
+                        Toggle(isOn: $manager.showTodayTokensInMenuBar) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Show today's tokens in Menu Bar")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.primary)
+                                Text("⚡ total tokens used today across all tools; hidden while it's 0")
+                                    .font(.system(size: 9.5, weight: .regular))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .toggleStyle(.switch)
+
                         Toggle(isOn: $manager.showQuotaInMenuBar) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Show live quota percentages in Menu Bar")
@@ -90,6 +102,12 @@ struct SettingsView: View {
                         )
 
                         SourceRow(
+                            name: "Claude Session Transcripts",
+                            path: "~/.claude/projects",
+                            exists: sourceExists("~/.claude/projects")
+                        )
+
+                        SourceRow(
                             name: "Antigravity Conversations",
                             path: "~/.gemini/antigravity/conversations",
                             exists: sourceExists("~/.gemini/antigravity/conversations")
@@ -99,6 +117,12 @@ struct SettingsView: View {
                             name: "Antigravity CLI Conversations",
                             path: "~/.gemini/antigravity-cli/conversations",
                             exists: sourceExists("~/.gemini/antigravity-cli/conversations")
+                        )
+
+                        SourceRow(
+                            name: "Antigravity IDE Conversations",
+                            path: "~/.gemini/antigravity-ide/conversations",
+                            exists: sourceExists("~/.gemini/antigravity-ide/conversations")
                         )
                     }
                 }

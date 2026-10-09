@@ -16,12 +16,13 @@ A lightweight, local macOS menu bar app for tracking real-time rate limits, usag
 
 ## Features
 
-- **Claude Code Limits**: Reads live session percentages, weekly quotas, and reset countdowns by querying the local `claude` CLI (`-p /usage`), combined with historical usage metrics from `~/.claude/stats-cache.json`.
+- **Claude Code Limits**: Reads live session percentages, weekly quotas, and reset countdowns by querying the local `claude` CLI (`-p /usage`), combined with historical usage from `~/.claude/stats-cache.json` and your session transcripts. If your Claude session expires, a **Log In** button opens Terminal with `claude auth login`.
 - **OpenAI Codex Limits**: Queries live account status and rate limit reset credits via `codex app-server --stdio` JSON-RPC (with fallback to `~/.codex/sessions/*.jsonl`), extracts subscription tier from `~/.codex/auth.json`, and parses historical 14-day token breakdown per model from `~/.codex/state_5.sqlite`.
-- **Google Antigravity Limits**: Reads model-family 5-hour and weekly quotas from `agy /usage`, with a running Antigravity desktop app or IDE as a local fallback, and parses local conversation databases under `~/.gemini` for token history.
+- **Google Antigravity Limits**: Reads model-family 5-hour and weekly quotas from `agy /usage`, with a running Antigravity desktop app or IDE as a local fallback, and parses local conversation databases under `~/.gemini` (desktop app, IDE, and CLI) for token history.
 - **14-Day Activity Visualization**: Stacked daily token chart comparing Claude Code, Codex, and Antigravity.
 - **Model Breakdown**: Provider-qualified token totals for every locally observed model.
-- **Auto & Manual Refresh**: Configurable auto-refresh intervals (1, 5, or 15 minutes) or instant manual refresh.
+- **Today at a glance**: The ⚡ menu bar figure is today's total tokens across all tools (hidden while it's 0; can be turned off in Settings).
+- **Auto & Manual Refresh**: Configurable auto-refresh intervals (1, 5, 10, or 30 minutes) or instant manual refresh. Providers are refreshed in parallel.
 - **100% Local & Native**: Built with SwiftUI (`MenuBarExtra`) for macOS 13+. Operates entirely on your local machine with zero remote tracking, telemetry, or external network dependencies.
 
 ---
@@ -48,7 +49,8 @@ TokenBar inspects local CLI environment state and local application stores:
 
 1. **Claude Code Integration (`ClaudeDataReader.swift`)**
    - **Live Status**: Spawns `claude -p /usage --output-format json` in a background subprocess (15s timeout) to extract active 5-hour session and weekly rate limit percentages.
-   - **History**: Reads `~/.claude/stats-cache.json` for historical daily message counts, session numbers, tool call counts, and per-model input/output/cache token stats.
+   - **History**: Reads `~/.claude/stats-cache.json` for historical daily message counts, session numbers, tool call counts, and per-model input/output/cache token stats. Claude Code only rewrites that cache occasionally, so every day after its `lastComputedDate` is rebuilt from the session transcripts in `~/.claude/projects` (parsed incrementally, deduplicated across resumed/forked sessions).
+   - **Sign-in state**: If `/usage` fails, `claude auth status` distinguishes an expired login (shown as *Expired* with a Log In button) from a transient CLI error (the last reading is kept).
 
 2. **OpenAI Codex Integration (`CodexDataReader.swift`)**
    - **Live Status**: Runs `codex app-server --stdio` over JSON-RPC to invoke `account/rateLimits/read` for active window limits and reset credits. If the app-server process is inactive, falls back to parsing recent `~/.codex/sessions/*.jsonl` files.
@@ -57,7 +59,7 @@ TokenBar inspects local CLI environment state and local application stores:
 
 3. **Google Antigravity Integration (`AntigravityDataReader.swift`)**
    - **Live Status**: Runs `agy -p /usage --output-format json` for the authoritative quota report. If unavailable, it connects to the authenticated localhost service of a running Antigravity app or IDE. It does not copy or persist local credentials.
-   - **History**: Opens Antigravity and Antigravity CLI conversation databases under `~/.gemini` in read-only mode, deduplicates responses, and recovers modern per-turn timestamps from the `steps` table.
+   - **History**: Opens Antigravity, Antigravity IDE, and Antigravity CLI conversation databases under `~/.gemini` in read-only mode (falling back to SQLite's `immutable` mode for WAL databases whose app isn't running), deduplicates responses, and recovers modern per-turn timestamps from the `steps` table. Parsed results are cached per file.
    - **Availability**: Historical activity remains available while Antigravity is closed. Live quota refresh uses a signed-in `agy` CLI or a running desktop app/IDE.
 
 ---

@@ -173,6 +173,53 @@ final class UsageManagerTests: XCTestCase {
         XCTAssertEqual(UsageManager.codexWeeklyMenuBarText(for: codex), "29%")
     }
 
+    func testClaudeMenuBarShowsExpiredOnlyWhenSignedOut() {
+        var claude = ClaudeUsageData()
+        claude.modelUsage = [ClaudeModelDetail(modelName: "m", inputTokens: 10, outputTokens: 10, cacheReadInputTokens: 0, cacheCreationInputTokens: 0)]
+
+        claude.liveIssue = .unavailable
+        XCTAssertNil(UsageManager.claudeWeeklyMenuBarText(for: claude))
+
+        claude.liveIssue = .signedOut
+        XCTAssertEqual(UsageManager.claudeWeeklyMenuBarText(for: claude), "Expired")
+    }
+
+    func testClaudeSnapshotCarriesOverOnTransientFailureOnly() {
+        var previous = ClaudeUsageData()
+        previous.hasLiveStatus = true
+        previous.weekAllModelsPct = 42
+        previous.sessionUsedPct = 12
+
+        var flaky = ClaudeUsageData()
+        flaky.liveIssue = .unavailable
+        let merged = UsageManager.mergeClaudeSnapshot(new: flaky, previous: previous)
+        XCTAssertTrue(merged.hasLiveStatus)
+        XCTAssertTrue(merged.isStaleSnapshot)
+        XCTAssertEqual(merged.weekAllModelsPct, 42)
+        XCTAssertEqual(UsageManager.claudeWeeklyMenuBarText(for: merged), "42%")
+
+        var signedOut = ClaudeUsageData()
+        signedOut.liveIssue = .signedOut
+        let notMerged = UsageManager.mergeClaudeSnapshot(new: signedOut, previous: previous)
+        XCTAssertFalse(notMerged.hasLiveStatus)
+        XCTAssertEqual(UsageManager.claudeWeeklyMenuBarText(for: notMerged), "Expired")
+    }
+
+    func testClaudeAuthFailureDetection() {
+        XCTAssertTrue(ClaudeDataReader.isAuthFailure("Not logged in · Please run /login"))
+        XCTAssertTrue(ClaudeDataReader.isAuthFailure(#"{"is_error":true,"result":"OAuth token has expired. Please obtain a new token or refresh your existing token."}"#))
+        XCTAssertTrue(ClaudeDataReader.isAuthFailure("Invalid API key · Please run /login"))
+        XCTAssertFalse(ClaudeDataReader.isAuthFailure("API Error: Connection error."))
+        XCTAssertFalse(ClaudeDataReader.isAuthFailure(""))
+    }
+
+    func testTodayTokensMenuBarTextHidesLoneZero() {
+        XCTAssertNil(UsageManager.todayTokensMenuBarText(total: 0, showTodayTokens: true, showQuota: true))
+        XCTAssertEqual(UsageManager.todayTokensMenuBarText(total: 0, showTodayTokens: true, showQuota: false), "0")
+        XCTAssertEqual(UsageManager.todayTokensMenuBarText(total: 46_279, showTodayTokens: true, showQuota: true), "46.3K")
+        XCTAssertNil(UsageManager.todayTokensMenuBarText(total: 46_279, showTodayTokens: false, showQuota: true))
+    }
+
     func testAntigravityQuotaSummaryMapsFamiliesAndCadences() {
         let payload: [String: Any] = [
             "response": [

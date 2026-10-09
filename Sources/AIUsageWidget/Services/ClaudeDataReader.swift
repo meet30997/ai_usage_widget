@@ -1,10 +1,12 @@
 import Foundation
+import AppKit
 
 class ClaudeDataReader {
     static let shared = ClaudeDataReader()
     
     private let statsFilePath: String
     private let claudeBinaryPath: String
+    private let transcriptScanner = ClaudeTranscriptScanner()
     
     init(customPath: String? = nil) {
         if let path = customPath {
@@ -84,10 +86,9 @@ class ClaudeDataReader {
             }
         }
         
-        // 2. Compute today's tokens and activity live from session
-        // transcripts, since stats-cache.json is only refreshed
-        // periodically and can lag behind by up to a full day.
-        mergeTodayLiveStatsFromTranscripts(&data)
+        // 2. Fill in days stats-cache.json hasn't caught up on (it can lag
+        // by weeks) from the session transcripts.
+        mergeRecentStatsFromTranscripts(&data)
 
         // 3. Execute claude -p /usage CLI command for live subscription status
         fetchLiveCLIUsage(&data)
@@ -95,106 +96,142 @@ class ClaudeDataReader {
         return data
     }
 
-    private func mergeTodayLiveStatsFromTranscripts(_ data: inout ClaudeUsageData) {
+    /// Fills in every day after stats-cache.json's `lastComputedDate` from
+    /// the session transcripts, and adds those days to the all-time totals.
+    private func mergeRecentStatsFromTranscripts(_ data: inout ClaudeUsageData) {
         let calendar = Calendar.current
-        let now = Date()
-        let startOfDay = calendar.startOfDay(for: now)
+        let startOfToday = calendar.startOfDay(for: Date())
+        let dayFormatter = DateFormatter()
+        dayFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dayFormatter.timeZone = .current
+        dayFormatter.dateFormat = "yyyy-MM-dd"
 
-        let projectsDir = NSString(string: "~/.claude/projects").expandingTildeInPath
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
-            at: URL(fileURLWithPath: projectsDir),
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
+        // Days up to and including lastComputedDate are already in the
+        // cache's totals; anything newer must be added on top.
+        let lastComputed = dayFormatter.date(from: data.lastComputedDate)
+        var cutoff = Date.distantPast
+        if let lastComputed, let next = calendar.date(byAdding: .day, value: 1, to: lastComputed) {
+            cutoff = calendar.startOfDay(for: next)
+        }
+        // Always rescan today, even if the cache claims to cover it, since
+        // the cache can be written mid-day.
+        cutoff = min(cutoff, startOfToday)
 
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let isoFormatterNoFraction = ISO8601DateFormatter()
+        let summary = transcriptScanner.scan(since: cutoff)
+        let recentDays = Set(summary.tokensByDay.keys).union(summary.activityByDay.keys)
+        guard !recentDays.isEmpty else { return }
 
-        var seenMessageIDs = Set<String>()
-        var tokenTotals: [String: Int64] = [:]
-        var sessionIDs = Set<String>()
-        var messageCount = 0
-        var toolCallCount = 0
-
-        for case let fileURL as URL in enumerator {
-            guard fileURL.pathExtension == "jsonl" else { continue }
-            // Skip files untouched today, so we only parse transcripts
-            // that could actually contain today's activity.
-            guard let modDate = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
-                  modDate >= startOfDay else { continue }
-            guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else { continue }
-
-            for line in content.split(separator: "\n") {
-                guard let lineData = line.data(using: .utf8),
-                      let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-                      let type = obj["type"] as? String,
-                      type == "user" || type == "assistant",
-                      obj["isMeta"] as? Bool != true,
-                      let timestampStr = obj["timestamp"] as? String,
-                      let timestamp = isoFormatter.date(from: timestampStr) ?? isoFormatterNoFraction.date(from: timestampStr),
-                      timestamp >= startOfDay else { continue }
-
-                messageCount += 1
-
-                if obj["isSidechain"] as? Bool != true, let sessionID = obj["sessionId"] as? String {
-                    sessionIDs.insert(sessionID)
-                }
-
-                guard let message = obj["message"] as? [String: Any] else { continue }
-
-                if type == "assistant", let content = message["content"] as? [[String: Any]] {
-                    toolCallCount += content.filter { $0["type"] as? String == "tool_use" }.count
-                }
-
-                guard type == "assistant",
-                      let usage = message["usage"] as? [String: Any],
-                      let model = message["model"] as? String else { continue }
-
-                // Streaming/tool-use turns log the same message id multiple
-                // times with an identical cumulative usage snapshot; count
-                // each message id once to avoid inflating the token total.
-                let messageID = message["id"] as? String ?? UUID().uuidString
-                guard seenMessageIDs.insert(messageID).inserted else { continue }
-
-                let input = (usage["input_tokens"] as? NSNumber)?.int64Value ?? 0
-                let output = (usage["output_tokens"] as? NSNumber)?.int64Value ?? 0
-                let cacheCreate = (usage["cache_creation_input_tokens"] as? NSNumber)?.int64Value ?? 0
-
-                // Deliberately excludes cache_read_input_tokens: cache reads
-                // recur on nearly every turn as the accumulated context is
-                // replayed, so including them inflates the daily total by
-                // 30-60x versus what stats-cache.json's dailyModelTokens
-                // reports for past days and makes today's number
-                // incomparable to the rest of the chart.
-                tokenTotals[model, default: 0] += input + output + cacheCreate
+        data.dailyModelTokens.removeAll { recentDays.contains($0.date) }
+        data.dailyActivity.removeAll { recentDays.contains($0.date) }
+        for day in recentDays {
+            if let models = summary.tokensByDay[day] {
+                data.dailyModelTokens.append(ClaudeDailyModelTokens(
+                    date: day,
+                    tokensByModel: models.mapValues(\.total)
+                ))
+            }
+            if let activity = summary.activityByDay[day] {
+                data.dailyActivity.append(ClaudeDailyActivity(
+                    date: day,
+                    messageCount: activity.messageCount,
+                    sessionCount: activity.sessionIDs.count,
+                    toolCallCount: activity.toolCallCount
+                ))
             }
         }
+        data.dailyModelTokens.sort { $0.date < $1.date }
+        data.dailyActivity.sort { $0.date < $1.date }
 
-        guard messageCount > 0 else { return }
-
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let todayStr = formatter.string(from: now)
-
-        if !tokenTotals.isEmpty {
-            data.dailyModelTokens.removeAll { $0.date == todayStr }
-            data.dailyModelTokens.append(ClaudeDailyModelTokens(date: todayStr, tokensByModel: tokenTotals))
+        // All-time totals: only add days the cache hasn't counted yet.
+        let cachedThrough = data.lastComputedDate
+        let isNew: (String) -> Bool = { cachedThrough.isEmpty || $0 > cachedThrough }
+        var models = Dictionary(data.modelUsage.map { ($0.modelName, $0) }, uniquingKeysWith: { first, _ in first })
+        for (day, byModel) in summary.tokensByDay where isNew(day) {
+            for (name, counts) in byModel {
+                let existing = models[name]
+                models[name] = ClaudeModelDetail(
+                    modelName: name,
+                    inputTokens: (existing?.inputTokens ?? 0) + counts.input,
+                    outputTokens: (existing?.outputTokens ?? 0) + counts.output,
+                    cacheReadInputTokens: (existing?.cacheReadInputTokens ?? 0) + counts.cacheRead,
+                    cacheCreationInputTokens: (existing?.cacheCreationInputTokens ?? 0) + counts.cacheCreation
+                )
+            }
         }
-
-        data.dailyActivity.removeAll { $0.date == todayStr }
-        data.dailyActivity.append(ClaudeDailyActivity(
-            date: todayStr,
-            messageCount: messageCount,
-            sessionCount: sessionIDs.count,
-            toolCallCount: toolCallCount
-        ))
+        data.modelUsage = models.values.sorted { $0.totalTokens > $1.totalTokens }
+        data.totalMessages += summary.activityByDay
+            .filter { isNew($0.key) }
+            .reduce(0) { $0 + $1.value.messageCount }
+        data.totalSessions += summary.sessionStarts.values
+            .filter { isNew(dayFormatter.string(from: $0)) }
+            .count
     }
     
     private func fetchLiveCLIUsage(_ data: inout ClaudeUsageData) {
-        guard !claudeBinaryPath.isEmpty else { return }
-        
+        guard !claudeBinaryPath.isEmpty else {
+            data.liveIssue = .cliMissing
+            return
+        }
+
+        guard let result = runCLI(arguments: [
+            "-p", "/usage",
+            "--output-format", "json",
+            "--tools", "",
+            "--no-session-persistence"
+        ], timeout: 15) else {
+            data.liveIssue = .unavailable
+            return
+        }
+
+        // With --output-format json the report (or the error message) is in
+        // "result"; fall back to the raw text for older CLI versions.
+        var reportText = result.stdout
+        if let jsonData = result.stdout.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+           let text = json["result"] as? String {
+            reportText = text
+        }
+
+        if result.status == 0 {
+            parseUsageText(reportText, into: &data)
+        }
+        guard !data.hasLiveStatus else { return }
+
+        if Self.isAuthFailure(result.stdout + "\n" + result.stderr) || !isLoggedIn() {
+            data.liveIssue = .signedOut
+        } else {
+            data.liveIssue = .unavailable
+        }
+    }
+
+    /// Messages the Claude CLI prints when it has no usable credentials,
+    /// e.g. "Not logged in · Please run /login" or
+    /// "OAuth token has expired. Please obtain a new token…".
+    static func isAuthFailure(_ output: String) -> Bool {
+        let text = output.lowercased()
+        let markers = [
+            "/login", "not logged in", "log in", "oauth", "token has expired",
+            "token expired", "invalid api key", "authentication_error", "unauthorized"
+        ]
+        return markers.contains { text.contains($0) }
+    }
+
+    /// `claude auth status --json` is fast and does not hit the network, so
+    /// it is a cheap way to tell "signed out" from "network hiccup".
+    private func isLoggedIn() -> Bool {
+        guard let result = runCLI(arguments: ["auth", "status", "--json"], timeout: 5),
+              let jsonData = result.stdout.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+              let loggedIn = json["loggedIn"] as? Bool else {
+            // Unknown: don't claim the user is signed out.
+            return true
+        }
+        return loggedIn
+    }
+
+    /// Runs the Claude CLI with a clean environment. Returns nil on launch
+    /// failure or timeout.
+    private func runCLI(arguments: [String], timeout: TimeInterval) -> (status: Int32, stdout: String, stderr: String)? {
         let homeDir = NSHomeDirectory()
         let workDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(Bundle.main.bundleIdentifier ?? "dev.aiusagetracker.app", isDirectory: true)
@@ -204,13 +241,7 @@ class ClaudeDataReader {
         
         let task = Process()
         task.executableURL = URL(fileURLWithPath: claudeBinaryPath)
-        task.arguments = [
-            "-p", "/usage",
-            "--output-format", "json",
-            "--tools", "",
-            "--no-session-persistence"
-        ]
-        
+        task.arguments = arguments
         task.currentDirectoryURL = workDirectory
         
         // Clean environment: avoid setting SHELL to prevent loading login shell configs (.zprofile, .zshrc)
@@ -224,36 +255,59 @@ class ClaudeDataReader {
         env.removeValue(forKey: "SHELL")
         task.environment = env
         
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = FileHandle.nullDevice
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        task.standardOutput = outPipe
+        task.standardError = errPipe
         task.standardInput = FileHandle.nullDevice
         
         do {
             try task.run()
-            let deadline = Date().addingTimeInterval(15)
-            while task.isRunning && Date() < deadline {
-                Thread.sleep(forTimeInterval: 0.1)
-            }
-            if task.isRunning {
-                task.terminate()
-                return
-            }
-            let rawData = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard task.terminationStatus == 0 else { return }
-            
-            guard let output = String(data: rawData, encoding: .utf8) else { return }
-            
-            // Try JSON output first (from --output-format json)
-            if let jsonData = output.data(using: .utf8),
-               let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-               let result = json["result"] as? String {
-                parseUsageText(result, into: &data)
-            } else {
-                // Fallback: parse raw text output
-                parseUsageText(output, into: &data)
-            }
-        } catch { return }
+        } catch {
+            return nil
+        }
+        let deadline = Date().addingTimeInterval(timeout)
+        while task.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        if task.isRunning {
+            task.terminate()
+            return nil
+        }
+        let stdout = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return (task.terminationStatus, stdout, stderr)
+    }
+
+    /// Opens a terminal window running `claude auth login`. Uses a
+    /// `.command` file so it opens in the user's default terminal app and
+    /// needs no Apple Events / Automation permission.
+    @discardableResult
+    func openLoginInTerminal() -> Bool {
+        guard !claudeBinaryPath.isEmpty else { return false }
+
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(Bundle.main.bundleIdentifier ?? "dev.aiusagetracker.app", isDirectory: true)
+        let scriptURL = dir.appendingPathComponent("claude-login.command")
+        let quotedBinary = "'" + claudeBinaryPath.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let script = """
+        #!/bin/zsh
+        clear
+        echo "Signing in to Claude Code..."
+        echo
+        \(quotedBinary) auth login
+        echo
+        echo "Done. You can close this window; the usage widget picks up the new session on its next refresh."
+        """
+
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
+        } catch {
+            return false
+        }
+        return NSWorkspace.shared.open(scriptURL)
     }
     
     private func parseUsageText(_ text: String, into data: inout ClaudeUsageData) {

@@ -105,17 +105,56 @@ struct ClaudeStatusCard: View {
                         resetText: claude.weekFableReset.isEmpty ? nil : "resets \(claude.weekFableReset)",
                         accentGradient: progressGradient(usedPct: weekFablePct)
                     )
-                } else {
-                    HStack {
-                        Text("Session limits")
-                            .font(.system(size: 11, weight: .semibold))
-                        Spacer()
-                        Text("Local session expired")
+
+                    if claude.isStaleSnapshot {
+                        Label("Last reading; couldn't reach the Claude CLI", systemImage: "clock.badge.exclamationmark")
                             .font(.system(size: 9, weight: .medium))
                             .foregroundColor(.secondary)
                     }
+                } else {
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Session limits")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text(issueText)
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        if claude.liveIssue == .signedOut {
+                            Button(action: {
+                                ClaudeDataReader.shared.openLoginInTerminal()
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "person.badge.key.fill")
+                                        .font(.system(size: 10, weight: .bold))
+                                    Text("Log In")
+                                        .font(.system(size: 11, weight: .bold))
+                                }
+                                .foregroundColor(MacTheme.claudePrimary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(MacTheme.claudePrimary.opacity(0.15))
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(MacTheme.claudePrimary.opacity(0.35), lineWidth: 0.5)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .help("Opens Terminal and runs `claude auth login`")
+                        }
+                    }
                 }
             }
+        }
+    }
+
+    private var issueText: String {
+        switch claude.liveIssue {
+        case .signedOut: return "Signed out or session expired"
+        case .cliMissing: return "Claude CLI not found"
+        case .unavailable, .none: return "Couldn't read live usage; will retry"
         }
     }
 }

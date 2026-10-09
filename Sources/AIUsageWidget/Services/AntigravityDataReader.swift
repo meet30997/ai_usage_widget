@@ -9,7 +9,8 @@ final class AntigravityDataReader {
     init(historyRoots: [String]? = nil) {
         self.historyRoots = historyRoots ?? [
             NSString(string: "~/.gemini/antigravity/conversations").expandingTildeInPath,
-            NSString(string: "~/.gemini/antigravity-cli/conversations").expandingTildeInPath
+            NSString(string: "~/.gemini/antigravity-cli/conversations").expandingTildeInPath,
+            NSString(string: "~/.gemini/antigravity-ide/conversations").expandingTildeInPath
         ]
     }
 
@@ -272,6 +273,21 @@ final class AntigravityDataReader {
         let cacheRead: Int64
     }
 
+    private struct ParsedDatabase {
+        let modified: Date
+        let size: Int
+        let timeZone: String
+        let records: [HistoryRecord]
+        let rejected: Int
+        let reasons: [String: Int]
+    }
+
+    /// Parsed results per database file. Conversations are append-only and
+    /// most are untouched between refreshes, so re-parsing hundreds of
+    /// databases every minute would be wasted work.
+    private var parsedCache: [String: ParsedDatabase] = [:]
+    private let cacheLock = NSLock()
+
     private struct StepTimestamps {
         var byResponseID: [String: Date] = [:]
         var byGenerationIndex: [Int64: Date] = [:]
@@ -291,7 +307,7 @@ final class AntigravityDataReader {
         for root in historyRoots {
             guard let files = try? FileManager.default.contentsOfDirectory(
                 at: URL(fileURLWithPath: root),
-                includingPropertiesForKeys: [.isRegularFileKey],
+                includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey],
                 options: [.skipsHiddenFiles]
             ) else { continue }
 
@@ -299,7 +315,7 @@ final class AntigravityDataReader {
                 let sessionID = url.deletingPathExtension().lastPathComponent
                 guard seenSessions.insert(sessionID).inserted else { continue }
                 databaseCount += 1
-                let result = parseHistoryDatabase(url, sessionID: sessionID, formatter: formatter)
+                let result = cachedParse(url, sessionID: sessionID, formatter: formatter)
                 records.append(contentsOf: result.records)
                 rejected += result.rejected
                 for (reason, count) in result.reasons { rejectionReasons[reason, default: 0] += count }
@@ -343,15 +359,46 @@ final class AntigravityDataReader {
         }
     }
 
+    private func cachedParse(
+        _ url: URL,
+        sessionID: String,
+        formatter: DateFormatter
+    ) -> (records: [HistoryRecord], rejected: Int, reasons: [String: Int]) {
+        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        // The WAL holds recent turns until checkpoint, so it counts as a change too.
+        let walValues = try? URL(fileURLWithPath: url.path + "-wal")
+            .resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        let modified = max(values?.contentModificationDate ?? .distantPast, walValues?.contentModificationDate ?? .distantPast)
+        let size = (values?.fileSize ?? 0) + (walValues?.fileSize ?? 0)
+        let timeZone = TimeZone.current.identifier
+
+        cacheLock.lock()
+        let cached = parsedCache[url.path]
+        cacheLock.unlock()
+        if let cached, cached.modified == modified, cached.size == size, cached.timeZone == timeZone {
+            return (cached.records, cached.rejected, cached.reasons)
+        }
+
+        let result = parseHistoryDatabase(url, sessionID: sessionID, formatter: formatter)
+        cacheLock.lock()
+        parsedCache[url.path] = ParsedDatabase(
+            modified: modified,
+            size: size,
+            timeZone: timeZone,
+            records: result.records,
+            rejected: result.rejected,
+            reasons: result.reasons
+        )
+        cacheLock.unlock()
+        return result
+    }
+
     private func parseHistoryDatabase(
         _ url: URL,
         sessionID: String,
         formatter: DateFormatter
     ) -> (records: [HistoryRecord], rejected: Int, reasons: [String: Int]) {
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK,
-              let db else {
-            if let db { sqlite3_close(db) }
+        guard let db = SQLiteReadOnly.open(url) else {
             return ([], 1, ["database": 1])
         }
         defer { sqlite3_close(db) }

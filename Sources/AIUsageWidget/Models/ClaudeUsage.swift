@@ -35,6 +35,16 @@ struct ClaudeModelDetail: Identifiable {
     }
 }
 
+/// Why `claude -p /usage` produced no live quota.
+enum ClaudeLiveIssue: Equatable {
+    /// The CLI reported it is logged out or its OAuth token expired.
+    case signedOut
+    /// The CLI could not be found at any known install location.
+    case cliMissing
+    /// The CLI ran but timed out or returned nothing parseable.
+    case unavailable
+}
+
 struct ClaudeUsageData {
     var dailyActivity: [ClaudeDailyActivity] = []
     var dailyModelTokens: [ClaudeDailyModelTokens] = []
@@ -52,7 +62,11 @@ struct ClaudeUsageData {
     var weekFableReset: String = ""
     var weekModelLabel: String = "Model-specific weekly limit"
     var hasLiveStatus: Bool = false
-    
+    var liveIssue: ClaudeLiveIssue?
+    /// True when the quota fields are a previous snapshot carried over
+    /// after a transient CLI failure, rather than a fresh reading.
+    var isStaleSnapshot: Bool = false
+
     var todayActivity: ClaudeDailyActivity? {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"

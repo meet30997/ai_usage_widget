@@ -26,6 +26,12 @@ class UsageManager: ObservableObject {
         }
     }
     
+    @Published var showTodayTokensInMenuBar: Bool = true {
+        didSet {
+            UserDefaults.standard.set(showTodayTokensInMenuBar, forKey: "showTodayTokensInMenuBar")
+        }
+    }
+    
     private var timer: Timer?
     private var cancellables = Set<AnyCancellable>()
     
@@ -34,6 +40,7 @@ class UsageManager: ObservableObject {
         self.refreshIntervalSeconds = savedRefreshInterval
         let savedShowQuota = UserDefaults.standard.object(forKey: "showQuotaInMenuBar") as? Bool ?? true
         self.showQuotaInMenuBar = savedShowQuota
+        self.showTodayTokensInMenuBar = UserDefaults.standard.object(forKey: "showTodayTokensInMenuBar") as? Bool ?? true
         
         refreshData()
         setupTimer()
@@ -43,14 +50,22 @@ class UsageManager: ObservableObject {
         guard !isRefreshing else { return }
         isRefreshing = true
         
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let claude = ClaudeDataReader.shared.fetchUsageData()
-            let codex = CodexDataReader.shared.fetchUsageData()
-            let antigravity = AntigravityDataReader.shared.fetchUsageData()
+        // Each reader shells out to its own CLI (several seconds apiece), so
+        // fetch them concurrently and wait for the slowest.
+        var claude = ClaudeUsageData()
+        var codex = CodexUsageData()
+        var antigravity = AntigravityUsageData()
+        let group = DispatchGroup()
+        let queue = DispatchQueue.global(qos: .userInitiated)
+        queue.async(group: group) { claude = ClaudeDataReader.shared.fetchUsageData() }
+        queue.async(group: group) { codex = CodexDataReader.shared.fetchUsageData() }
+        queue.async(group: group) { antigravity = AntigravityDataReader.shared.fetchUsageData() }
+
+        group.notify(queue: queue) { [weak self] in
             let combined = Self.computeCombinedPoints(claude: claude, codex: codex, antigravity: antigravity)
-            
+
             DispatchQueue.main.async {
-                self?.claudeData = claude
+                self?.claudeData = Self.mergeClaudeSnapshot(new: claude, previous: self?.claudeData)
                 self?.codexData = codex
                 if antigravity.hasLiveStatus || self?.antigravityData.hasLiveStatus != true {
                     self?.antigravityData = antigravity
@@ -149,13 +164,41 @@ class UsageManager: ObservableObject {
         }
     }
 
+    /// A timed-out or flaky `claude -p /usage` shouldn't wipe the quota
+    /// display, so carry the last live reading forward (marked stale).
+    /// Sign-out is never masked: it needs the user to act.
+    static func mergeClaudeSnapshot(new: ClaudeUsageData, previous: ClaudeUsageData?) -> ClaudeUsageData {
+        guard !new.hasLiveStatus,
+              new.liveIssue == .unavailable,
+              let previous, previous.hasLiveStatus else { return new }
+        var merged = new
+        merged.hasLiveStatus = true
+        merged.isStaleSnapshot = true
+        merged.sessionUsedPct = previous.sessionUsedPct
+        merged.sessionReset = previous.sessionReset
+        merged.weekAllModelsPct = previous.weekAllModelsPct
+        merged.weekAllModelsReset = previous.weekAllModelsReset
+        merged.weekFablePct = previous.weekFablePct
+        merged.weekFableReset = previous.weekFableReset
+        merged.weekModelLabel = previous.weekModelLabel
+        return merged
+    }
+
     static func claudeWeeklyMenuBarText(for data: ClaudeUsageData) -> String? {
         if data.hasLiveStatus {
             return "\(Int(round(data.weekAllModelsPct)))%"
-        } else if data.grandTotalTokens > 0 {
+        } else if data.liveIssue == .signedOut {
             return "Expired"
         }
         return nil
+    }
+
+    /// Today's combined token count, or nil when the user hid it or when
+    /// it would just be a lone "0" next to the quota percentages.
+    static func todayTokensMenuBarText(total: Int64, showTodayTokens: Bool, showQuota: Bool) -> String? {
+        guard showTodayTokens else { return nil }
+        if total == 0 && showQuota { return nil }
+        return formatTokens(total)
     }
 
     static func codexWeeklyMenuBarText(for data: CodexUsageData) -> String? {
@@ -170,7 +213,11 @@ class UsageManager: ObservableObject {
     
     var menuBarImage: NSImage {
         let total = codexData.todayTokens + claudeData.todayTokens + antigravityData.todayTokens
-        let totalStr = Self.formatTokens(total)
+        let totalStr = Self.todayTokensMenuBarText(
+            total: total,
+            showTodayTokens: showTodayTokensInMenuBar,
+            showQuota: showQuotaInMenuBar
+        )
         let claudeText = Self.claudeWeeklyMenuBarText(for: claudeData)
         let codexText = Self.codexWeeklyMenuBarText(for: codexData)
         let antigravityText = Self.antigravityWeeklyMenuBarText(for: antigravityData)

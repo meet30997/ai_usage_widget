@@ -79,16 +79,7 @@ class CodexDataReader {
             return data
         }
         
-        var db: OpaquePointer?
-        let openResult = sqlite3_open_v2(
-            sqlitePath,
-            &db,
-            SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX,
-            nil
-        )
-        
-        guard openResult == SQLITE_OK, let db = db else {
-            if let db = db { sqlite3_close(db) }
+        guard let db = SQLiteReadOnly.open(URL(fileURLWithPath: sqlitePath)) else {
             return data
         }
         

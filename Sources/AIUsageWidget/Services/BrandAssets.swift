@@ -74,7 +74,7 @@ class BrandAssets {
     }
     
     func createMenuBarImage(
-        totalTokensText: String,
+        totalTokensText: String?,
         claudeText: String?,
         codexText: String?,
         antigravityText: String?,
@@ -89,9 +89,10 @@ class BrandAssets {
         let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .bold)
         let boltImg = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: nil)?.withSymbolConfiguration(config)
         
-        var elements: [(image: NSImage?, text: String)] = [
-            (boltImg, totalTokensText)
-        ]
+        var elements: [(image: NSImage?, text: String)] = []
+        if let totalTokensText {
+            elements.append((boltImg, totalTokensText))
+        }
         
         if showQuota, let cText = claudeText {
             elements.append((claudeRaw, cText))
@@ -103,6 +104,11 @@ class BrandAssets {
         if showQuota, let aText = antigravityText {
             let fallback = NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil)?.withSymbolConfiguration(config)
             elements.append((antigravityRaw ?? fallback, aText))
+        }
+        
+        // Never render an empty status item; fall back to the bare bolt.
+        if elements.isEmpty {
+            elements.append((boltImg, ""))
         }
         
         let textAttrs: [NSAttributedString.Key: Any] = [
