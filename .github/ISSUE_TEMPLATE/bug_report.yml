@@ -1,0 +1,60 @@
+name: Bug report
+description: Something shows wrong numbers, crashes, or doesn't work
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! Please redact emails, tokens, and anything else you don't want public.
+        Security issue? Please follow SECURITY.md instead of filing here.
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Which provider is affected?
+      multiple: true
+      options:
+        - Claude Code
+        - OpenAI Codex
+        - Google Antigravity
+        - Menu bar / general UI
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the menu bar popover
+        2. Go to the Claude tab
+        3. ...
+  - type: textarea
+    id: cli-output
+    attributes:
+      label: CLI output (optional)
+      description: For wrong quota numbers, the output of e.g. `claude -p /usage` or `agy -p /usage` helps a lot.
+      render: text
+  - type: input
+    id: tokenbar-version
+    attributes:
+      label: TokenBar version
+      description: Settings → Application
+    validations:
+      required: true
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: e.g. 15.3
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots

@@ -92,6 +92,12 @@ To install system-wide, move `build/AI Usage Tracker.app` into your `/Applicatio
 
 ---
 
+## Contributing
+
+Contributions are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) to get started, and [`SECURITY.md`](SECURITY.md) to report vulnerabilities privately. This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md).
+
+---
+
 ## License
 
 Distributed under the MIT License. See [`LICENSE`](LICENSE) for details.
