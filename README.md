@@ -60,7 +60,7 @@ TokenBar inspects local CLI environment state and local application stores:
 3. **Google Antigravity Integration (`AntigravityDataReader.swift`)**
    - **Live Status**: Runs `agy -p /usage --output-format json` for the authoritative quota report. If unavailable, it connects to the authenticated localhost service of a running Antigravity app or IDE. It does not copy or persist local credentials.
    - **History**: Opens Antigravity, Antigravity IDE, and Antigravity CLI conversation databases under `~/.gemini` in read-only mode (falling back to SQLite's `immutable` mode for WAL databases whose app isn't running), deduplicates responses, and recovers modern per-turn timestamps from the `steps` table. Parsed results are cached per file.
-   - **Availability**: Historical activity remains available while Antigravity is closed. Live quota refresh uses a signed-in `agy` CLI or a running desktop app/IDE.
+   - **Availability**: Historical activity remains available while Antigravity is closed. Live quota refresh uses a signed-in `agy` CLI or a running desktop app/IDE. The app never starts agy's browser sign-in; if agy is signed out, the card asks you to run `agy` in Terminal.
 
 ---
 

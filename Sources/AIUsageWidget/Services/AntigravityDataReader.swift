@@ -34,7 +34,14 @@ final class AntigravityDataReader {
         if fetchCLIQuota(into: &data) { return }
 
         let candidates = discoverServers()
-        guard !candidates.isEmpty else { return }
+        guard !candidates.isEmpty else {
+            // Keep a CLI failure reason if there is one; otherwise say why
+            // nothing could be read so the status card is never blank.
+            if data.liveError.isEmpty {
+                data.liveError = "Antigravity isn't running; open it to refresh quotas"
+            }
+            return
+        }
 
         var lastError = "Antigravity local quota service did not respond"
         for server in candidates {
@@ -63,13 +70,23 @@ final class AntigravityDataReader {
     @discardableResult
     private func fetchCLIQuota(into data: inout AntigravityUsageData) -> Bool {
         guard let binary = findAgyBinary() else { return false }
+        // When silent token refresh fails (expired token, network hiccup),
+        // agy falls back to an interactive OAuth flow that opens the browser
+        // via `open` and waits for a pasted code. Shadow `open` with a no-op
+        // and stop as soon as agy asks for sign-in.
         guard let output = run(
                 binary,
                 arguments: ["-p", "/usage", "--output-format", "json"],
                 timeout: 30,
-                maximumBytes: 2_000_000
+                maximumBytes: 2_000_000,
+                environment: agyEnvironment(),
+                stopWhenStderrContains: Self.agyAuthPrompt
               ) else {
             data.liveError = "Antigravity CLI quota request failed or timed out; will retry"
+            return false
+        }
+        if output.contains(Self.agyAuthPrompt) {
+            data.liveError = "Antigravity CLI needs sign-in; run agy in Terminal if this persists"
             return false
         }
         guard let root = try? JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any],
@@ -565,6 +582,28 @@ final class AntigravityDataReader {
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
+    private static let agyAuthPrompt = "Authentication required"
+
+    /// The inherited environment with a directory holding a no-op `open`
+    /// first on PATH, so agy can never launch a browser sign-in.
+    private func agyEnvironment() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        let path = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        let shimDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(Bundle.main.bundleIdentifier ?? "dev.aiusagetracker.app", isDirectory: true)
+            .appendingPathComponent("agy_shim", isDirectory: true)
+        let shim = shimDirectory.appendingPathComponent("open")
+        if !FileManager.default.isExecutableFile(atPath: shim.path) {
+            try? FileManager.default.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
+            try? Data("#!/bin/sh\nexit 0\n".utf8).write(to: shim)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shim.path)
+        }
+        if FileManager.default.isExecutableFile(atPath: shim.path) {
+            env["PATH"] = "\(shimDirectory.path):\(path)"
+        }
+        return env
+    }
+
     private func string(_ value: Any?) -> String? {
         if let value = value as? String, !value.isEmpty { return value }
         return nil
@@ -588,12 +627,39 @@ final class AntigravityDataReader {
         _ executable: String,
         arguments: [String],
         timeout: TimeInterval,
-        maximumBytes: Int = 1_000_000
+        maximumBytes: Int = 1_000_000,
+        environment: [String: String]? = nil,
+        stopWhenStderrContains stopMarker: String? = nil
     ) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
+        if let environment { process.environment = environment }
+        process.standardInput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
+        // When a stop marker is given, watch stderr for it and return the
+        // marker as soon as it appears instead of waiting for the process.
+        let markerSeen = NSLock()
+        var sawMarker = false
+        var stderrText = Data()
+        let errorPipe = Pipe()
+        if let stopMarker {
+            process.standardError = errorPipe
+            errorPipe.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                guard !chunk.isEmpty else { return }
+                markerSeen.lock()
+                if stderrText.count < 64_000 { stderrText.append(chunk) }
+                if String(decoding: stderrText, as: UTF8.self).contains(stopMarker) { sawMarker = true }
+                markerSeen.unlock()
+            }
+        }
+        func markerWasSeen() -> Bool {
+            markerSeen.lock()
+            defer { markerSeen.unlock() }
+            return sawMarker
+        }
+        defer { errorPipe.fileHandleForReading.readabilityHandler = nil }
         let pipe = Pipe()
         process.standardOutput = pipe
         let lock = NSLock()
@@ -613,7 +679,17 @@ final class AntigravityDataReader {
         do {
             try process.run()
             let deadline = Date().addingTimeInterval(timeout)
-            while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.02) }
+            while process.isRunning && Date() < deadline && !markerWasSeen() {
+                Thread.sleep(forTimeInterval: 0.02)
+            }
+            if let stopMarker, markerWasSeen() {
+                if process.isRunning {
+                    process.terminate()
+                    process.waitUntilExit()
+                }
+                pipe.fileHandleForReading.readabilityHandler = nil
+                return stopMarker
+            }
             if process.isRunning {
                 process.terminate()
                 process.waitUntilExit()
