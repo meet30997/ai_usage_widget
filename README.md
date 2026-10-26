@@ -48,7 +48,7 @@ A lightweight, local macOS menu bar app for tracking real-time rate limits, usag
 TokenBar inspects local CLI environment state and local application stores:
 
 1. **Claude Code Integration (`ClaudeDataReader.swift`)**
-   - **Live Status**: Spawns `claude -p /usage --output-format json` in a background subprocess (15s timeout) to extract active 5-hour session and weekly rate limit percentages.
+   - **Live Status**: Spawns `claude -p /usage --output-format json` in a background subprocess (30s timeout) to extract active 5-hour session and weekly rate limit percentages.
    - **History**: Reads `~/.claude/stats-cache.json` for historical daily message counts, session numbers, tool call counts, and per-model input/output/cache token stats. Claude Code only rewrites that cache occasionally, so every day after its `lastComputedDate` is rebuilt from the session transcripts in `~/.claude/projects` (parsed incrementally, deduplicated across resumed/forked sessions).
    - **Sign-in state**: If `/usage` fails, `claude auth status` distinguishes an expired login (shown as *Expired* with a Log In button) from a transient CLI error (the last reading is kept).
 

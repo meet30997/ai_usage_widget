@@ -173,12 +173,14 @@ class ClaudeDataReader {
             return
         }
 
+        // CLI startup plus the usage request can exceed 15 seconds even
+        // when signed in. Allow slow responses to finish before giving up.
         guard let result = runCLI(arguments: [
             "-p", "/usage",
             "--output-format", "json",
             "--tools", "",
             "--no-session-persistence"
-        ], timeout: 15) else {
+        ], timeout: 30) else {
             data.liveIssue = .unavailable
             return
         }

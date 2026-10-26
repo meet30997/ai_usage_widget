@@ -67,19 +67,7 @@ class UsageManager: ObservableObject {
             DispatchQueue.main.async {
                 self?.claudeData = Self.mergeClaudeSnapshot(new: claude, previous: self?.claudeData)
                 self?.codexData = codex
-                if antigravity.hasLiveStatus || self?.antigravityData.hasLiveStatus != true {
-                    self?.antigravityData = antigravity
-                } else {
-                    var retained = antigravity
-                    retained.quotaWindows = self?.antigravityData.quotaWindows ?? []
-                    retained.accountEmail = self?.antigravityData.accountEmail ?? ""
-                    retained.accountPlan = self?.antigravityData.accountPlan ?? ""
-                    retained.liveSource = self?.antigravityData.liveSource ?? ""
-                    retained.quotaFetchedAt = self?.antigravityData.quotaFetchedAt
-                    retained.liveError = "Last live quota snapshot; open Antigravity to refresh"
-                    retained.hasLiveStatus = false
-                    self?.antigravityData = retained
-                }
+                self?.antigravityData = Self.mergeAntigravitySnapshot(new: antigravity, previous: self?.antigravityData)
                 self?.combinedDailyPoints = combined
                 self?.lastRefreshed = Date()
                 self?.isRefreshing = false
@@ -181,6 +169,20 @@ class UsageManager: ObservableObject {
         merged.weekFablePct = previous.weekFablePct
         merged.weekFableReset = previous.weekFableReset
         merged.weekModelLabel = previous.weekModelLabel
+        return merged
+    }
+
+    /// Keep the last quota reading across consecutive failed refreshes,
+    /// while publishing current history and the latest failure reason.
+    static func mergeAntigravitySnapshot(new: AntigravityUsageData, previous: AntigravityUsageData?) -> AntigravityUsageData {
+        guard !new.hasLiveStatus,
+              let previous, !previous.quotaWindows.isEmpty else { return new }
+        var merged = new
+        merged.quotaWindows = previous.quotaWindows
+        merged.accountEmail = previous.accountEmail
+        merged.accountPlan = previous.accountPlan
+        merged.liveSource = previous.liveSource
+        merged.quotaFetchedAt = previous.quotaFetchedAt
         return merged
     }
 

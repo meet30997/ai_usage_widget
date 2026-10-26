@@ -268,6 +268,42 @@ final class UsageManagerTests: XCTestCase {
         XCTAssertNil(UsageManager.antigravityWeeklyMenuBarText(for: data))
     }
 
+    func testAntigravitySnapshotSurvivesConsecutiveFailuresUntilRecovery() {
+        var live = AntigravityUsageData()
+        live.hasLiveStatus = true
+        live.liveSource = "agy CLI"
+        live.quotaFetchedAt = Date(timeIntervalSince1970: 100)
+        live.quotaWindows = [
+            AntigravityQuotaWindow(family: "Gemini", cadence: .weekly, remainingPercent: 65, resetText: "resets Sunday")
+        ]
+
+        var failed = AntigravityUsageData()
+        failed.liveError = "CLI request timed out"
+        let firstFailure = UsageManager.mergeAntigravitySnapshot(new: failed, previous: live)
+        failed.liveError = "CLI returned no quotas"
+        failed.totalTokens = 200
+        let secondFailure = UsageManager.mergeAntigravitySnapshot(new: failed, previous: firstFailure)
+
+        XCTAssertFalse(secondFailure.hasLiveStatus)
+        XCTAssertEqual(secondFailure.quotaWindows, live.quotaWindows)
+        XCTAssertEqual(secondFailure.quotaFetchedAt, live.quotaFetchedAt)
+        XCTAssertEqual(secondFailure.liveSource, "agy CLI")
+        XCTAssertEqual(secondFailure.liveError, "CLI returned no quotas")
+        XCTAssertEqual(secondFailure.totalTokens, 200)
+        XCTAssertNil(UsageManager.antigravityWeeklyMenuBarText(for: secondFailure))
+
+        var recovered = live
+        recovered.quotaFetchedAt = Date(timeIntervalSince1970: 200)
+        recovered.quotaWindows = [
+            AntigravityQuotaWindow(family: "Gemini", cadence: .weekly, remainingPercent: 50, resetText: "resets Sunday")
+        ]
+        let merged = UsageManager.mergeAntigravitySnapshot(new: recovered, previous: secondFailure)
+        XCTAssertTrue(merged.hasLiveStatus)
+        XCTAssertEqual(merged.quotaWindows, recovered.quotaWindows)
+        XCTAssertEqual(merged.quotaFetchedAt, recovered.quotaFetchedAt)
+        XCTAssertEqual(UsageManager.antigravityWeeklyMenuBarText(for: merged), "50%")
+    }
+
     func testCombinedPointsIncludeAntigravityUsage() throws {
         let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-07-19T12:00:00Z"))
         var antigravity = AntigravityUsageData()

@@ -23,7 +23,7 @@ struct AntigravityStatusCard: View {
                             .font(.system(size: 13, weight: .bold, design: .rounded))
                     }
                     Spacer()
-                    Text(antigravity.hasLiveStatus ? antigravity.liveSource : "Offline")
+                    Text(antigravity.hasLiveStatus ? antigravity.liveSource : (antigravity.quotaWindows.isEmpty ? "Unavailable" : "Last reading"))
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
@@ -80,7 +80,7 @@ struct AntigravityStatusCard: View {
                 }
 
                 if !antigravity.hasLiveStatus && !antigravity.quotaWindows.isEmpty {
-                    Label(antigravity.liveError, systemImage: "clock.badge.exclamationmark")
+                    Label("Last quota reading. \(antigravity.liveError)", systemImage: "clock.badge.exclamationmark")
                         .font(.system(size: 9, weight: .medium))
                         .foregroundColor(MacTheme.warning)
                 }

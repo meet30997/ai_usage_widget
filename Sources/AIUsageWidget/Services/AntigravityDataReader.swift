@@ -62,18 +62,24 @@ final class AntigravityDataReader {
 
     @discardableResult
     private func fetchCLIQuota(into data: inout AntigravityUsageData) -> Bool {
-        guard let binary = findAgyBinary(),
-              let output = run(
+        guard let binary = findAgyBinary() else { return false }
+        guard let output = run(
                 binary,
                 arguments: ["-p", "/usage", "--output-format", "json"],
                 timeout: 30,
                 maximumBytes: 2_000_000
-              ),
-              let root = try? JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any],
+              ) else {
+            data.liveError = "Antigravity CLI quota request failed or timed out; will retry"
+            return false
+        }
+        guard let root = try? JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any],
               string(root["status"])?.uppercased() == "SUCCESS",
               let command = root["command"] as? [String: Any],
               let commandData = command["data"] as? [String: Any],
-              let groups = commandData["groups"] as? [[String: Any]] else { return false }
+              let groups = commandData["groups"] as? [[String: Any]] else {
+            data.liveError = "Antigravity CLI returned no readable quotas; will retry"
+            return false
+        }
 
         var windows: [AntigravityQuotaWindow] = []
         for group in groups {
@@ -97,7 +103,10 @@ final class AntigravityDataReader {
                 ))
             }
         }
-        guard !windows.isEmpty else { return false }
+        guard !windows.isEmpty else {
+            data.liveError = "Antigravity CLI returned no quota windows; will retry"
+            return false
+        }
         data.quotaWindows = windows.sorted(by: quotaSort)
         data.hasLiveStatus = true
         data.liveSource = "agy CLI"
