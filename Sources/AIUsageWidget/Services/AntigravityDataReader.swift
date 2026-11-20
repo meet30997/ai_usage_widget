@@ -89,6 +89,11 @@ final class AntigravityDataReader {
             data.liveError = "Antigravity CLI needs sign-in; run agy in Terminal if this persists"
             return false
         }
+        return parseCLIQuota(output, to: &data)
+    }
+
+    @discardableResult
+    func parseCLIQuota(_ output: String, to data: inout AntigravityUsageData) -> Bool {
         guard let root = try? JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any],
               string(root["status"])?.uppercased() == "SUCCESS",
               let command = root["command"] as? [String: Any],
@@ -100,7 +105,7 @@ final class AntigravityDataReader {
 
         var windows: [AntigravityQuotaWindow] = []
         for group in groups {
-            let family = normalizedFamily(string(group["name"]) ?? "Antigravity")
+            let family = normalizedFamily(string(group["name"]) ?? "Antigravity", isGroup: true)
             for bucket in group["buckets"] as? [[String: Any]] ?? [] {
                 let cadence = quotaCadence(
                     [string(bucket["name"]), string(bucket["id"]), string(bucket["window"])]
@@ -120,11 +125,12 @@ final class AntigravityDataReader {
                 ))
             }
         }
-        guard !windows.isEmpty else {
+        let deduplicated = deduplicateWindows(windows)
+        guard !deduplicated.isEmpty else {
             data.liveError = "Antigravity CLI returned no quota windows; will retry"
             return false
         }
-        data.quotaWindows = windows.sorted(by: quotaSort)
+        data.quotaWindows = deduplicated.sorted(by: quotaSort)
         data.hasLiveStatus = true
         data.liveSource = "agy CLI"
         data.liveError = ""
@@ -202,7 +208,7 @@ final class AntigravityDataReader {
         var windows: [AntigravityQuotaWindow] = []
         for group in groups {
             let rawFamily = string(group["displayName"]) ?? "Antigravity"
-            let family = normalizedFamily(rawFamily)
+            let family = normalizedFamily(rawFamily, isGroup: true)
             for bucket in group["buckets"] as? [[String: Any]] ?? [] {
                 let cadence = quotaCadence(
                     [string(bucket["displayName"]), string(bucket["bucketId"]), string(bucket["window"])]
@@ -227,9 +233,7 @@ final class AntigravityDataReader {
             }
         }
 
-        let deduplicated = Dictionary(grouping: windows, by: \.id).compactMap { _, values in
-            values.max { ($0.usedPercent ?? -1) < ($1.usedPercent ?? -1) }
-        }
+        let deduplicated = deduplicateWindows(windows)
         guard deduplicated.contains(where: { $0.remainingPercent != nil }) else { return false }
         data.quotaWindows = deduplicated.sorted(by: quotaSort)
         data.hasLiveStatus = true
@@ -251,7 +255,7 @@ final class AntigravityDataReader {
             if lowered.contains("lite") || lowered.contains("image") || lowered.contains("autocomplete") { continue }
             guard let quota = config["quotaInfo"] as? [String: Any],
                   let remaining = number(quota["remainingFraction"]) else { continue }
-            let family = normalizedFamily(label)
+            let family = normalizedFamily(label, isGroup: false)
             let item = AntigravityQuotaWindow(
                 family: family,
                 cadence: .fiveHour,
@@ -548,11 +552,25 @@ final class AntigravityDataReader {
 
     // MARK: - Helpers
 
-    private func normalizedFamily(_ value: String) -> String {
-        let lower = value.lowercased()
-        if lower.contains("gemini") { return "Gemini" }
+    private func normalizedFamily(_ value: String, isGroup: Bool) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stripped = trimmed
+            .replacingOccurrences(of: " Models", with: "")
+            .replacingOccurrences(of: " models", with: "")
+        let lower = stripped.lowercased()
         if lower.contains("claude") || lower.contains("gpt") { return "Claude + GPT" }
-        return value.replacingOccurrences(of: " Models", with: "")
+        if isGroup {
+            return lower == "gemini" ? "Gemini" : stripped
+        }
+        if lower.contains("argon") { return stripped }
+        if lower.contains("gemini") { return "Gemini" }
+        return stripped
+    }
+
+    private func deduplicateWindows(_ windows: [AntigravityQuotaWindow]) -> [AntigravityQuotaWindow] {
+        Dictionary(grouping: windows, by: \.id).compactMap { _, values in
+            values.max { ($0.usedPercent ?? -1) < ($1.usedPercent ?? -1) }
+        }
     }
 
     private func quotaCadence(_ label: String) -> AntigravityQuotaCadence {
@@ -568,7 +586,9 @@ final class AntigravityDataReader {
         if remainingFraction >= 0.999_999 { return "Quota available" }
         guard let raw = resetTime, !raw.isEmpty else { return fallback ?? "" }
         let input = ISO8601DateFormatter()
-        guard let date = input.date(from: raw) else { return fallback ?? raw }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = input.date(from: raw) ?? fractional.date(from: raw) else { return fallback ?? raw }
         let totalMinutes = max(0, Int(date.timeIntervalSinceNow / 60))
         return "Refreshes in \(totalMinutes / 60)h \(totalMinutes % 60)m"
     }

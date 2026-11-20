@@ -35,6 +35,14 @@ struct ClaudeModelDetail: Identifiable {
     }
 }
 
+/// Model-specific weekly quota row reported by `claude -p /usage` when present.
+struct ClaudeModelWeeklyLimit: Equatable, Identifiable {
+    var id: String { label }
+    let label: String
+    let usedPct: Double
+    let resetText: String
+}
+
 /// Why `claude -p /usage` produced no live quota.
 enum ClaudeLiveIssue: Equatable {
     /// The CLI reported it is logged out or its OAuth token expired.
@@ -58,9 +66,7 @@ struct ClaudeUsageData {
     var sessionReset: String = ""
     var weekAllModelsPct: Double = 0.0
     var weekAllModelsReset: String = ""
-    var weekFablePct: Double = 0.0
-    var weekFableReset: String = ""
-    var weekModelLabel: String = "Model-specific weekly limit"
+    var weekModelLimits: [ClaudeModelWeeklyLimit] = []
     var hasLiveStatus: Bool = false
     var liveIssue: ClaudeLiveIssue?
     /// True when the quota fields are a previous snapshot carried over

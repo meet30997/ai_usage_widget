@@ -312,11 +312,11 @@ class ClaudeDataReader {
         return NSWorkspace.shared.open(scriptURL)
     }
     
-    private func parseUsageText(_ text: String, into data: inout ClaudeUsageData) {
+    func parseUsageText(_ text: String, into data: inout ClaudeUsageData) {
         let lines = text.components(separatedBy: .newlines)
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.contains("Current session:") {
+            if trimmed.localizedCaseInsensitiveContains("Current session:") {
                 if let pct = extractPercentage(trimmed) {
                     data.sessionUsedPct = pct
                     data.hasLiveStatus = true
@@ -324,7 +324,7 @@ class ClaudeDataReader {
                 if let resets = extractResetText(trimmed) {
                     data.sessionReset = resets
                 }
-            } else if trimmed.contains("Current week (all models):") {
+            } else if trimmed.localizedCaseInsensitiveContains("Current week (all models):") {
                 if let pct = extractPercentage(trimmed) {
                     data.weekAllModelsPct = pct
                     data.hasLiveStatus = true
@@ -332,18 +332,18 @@ class ClaudeDataReader {
                 if let resets = extractResetText(trimmed) {
                     data.weekAllModelsReset = resets
                 }
-            } else if trimmed.contains("Current week (Fable):") || trimmed.contains("Current week (") {
-                if let pct = extractPercentage(trimmed) {
-                    data.weekFablePct = pct
-                    data.hasLiveStatus = true
-                }
-                if let open = trimmed.range(of: "Current week ("),
-                   let close = trimmed[open.upperBound...].firstIndex(of: ")") {
-                    data.weekModelLabel = String(trimmed[open.upperBound..<close])
-                }
-                if let resets = extractResetText(trimmed) {
-                    data.weekFableReset = resets
-                }
+            } else if let open = trimmed.range(of: "Current week (", options: .caseInsensitive),
+                      let close = trimmed[open.upperBound...].firstIndex(of: ")"),
+                      let pct = extractPercentage(trimmed) {
+                let label = String(trimmed[open.upperBound..<close]).trimmingCharacters(in: .whitespaces)
+                guard !label.isEmpty else { continue }
+                let resets = extractResetText(trimmed) ?? ""
+                data.weekModelLimits.append(ClaudeModelWeeklyLimit(
+                    label: label,
+                    usedPct: pct,
+                    resetText: resets
+                ))
+                data.hasLiveStatus = true
             }
         }
     }
@@ -359,7 +359,7 @@ class ClaudeDataReader {
     }
 
     private func extractResetText(_ str: String) -> String? {
-        if let resetRange = str.range(of: "resets ") {
+        if let resetRange = str.range(of: "resets ", options: .caseInsensitive) {
             return String(str[resetRange.upperBound...]).trimmingCharacters(in: .whitespaces)
         }
         return nil

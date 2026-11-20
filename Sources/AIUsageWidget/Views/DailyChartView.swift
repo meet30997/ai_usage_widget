@@ -6,15 +6,17 @@ struct DailyChartView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(spacing: 8) {
                 Text("DAILY TOKEN TRENDS (14 DAYS)")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundColor(.secondary)
                     .tracking(0.5)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 
-                Spacer()
+                Spacer(minLength: 4)
                 
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     LegendItem(gradient: MacTheme.codexGradient, label: "Codex")
                     LegendItem(gradient: MacTheme.claudeGradient, label: "Claude")
                     LegendItem(gradient: MacTheme.antigravityGradient, label: "Antigravity")
@@ -187,6 +189,8 @@ struct LegendItem: View {
             Text(label)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .fixedSize()
         }
     }
 }

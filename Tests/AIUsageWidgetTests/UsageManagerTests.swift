@@ -213,6 +213,42 @@ final class UsageManagerTests: XCTestCase {
         XCTAssertFalse(ClaudeDataReader.isAuthFailure(""))
     }
 
+    func testClaudeUsageOmitsModelSpecificLimitWhenAbsentAndParsesWhenPresent() {
+        let withoutModelLimit = """
+        You are currently using your subscription to power your Claude Code usage
+
+        Current session: 6% used · resets Nov 20 at 1:10pm (Asia/Calcutta)
+        Current week (all models): 1% used · resets Nov 27 at 6:30am (Asia/Calcutta)
+        """
+        var noModelData = ClaudeUsageData()
+        ClaudeDataReader.shared.parseUsageText(withoutModelLimit, into: &noModelData)
+        XCTAssertTrue(noModelData.hasLiveStatus)
+        XCTAssertEqual(noModelData.sessionUsedPct, 6)
+        XCTAssertEqual(noModelData.weekAllModelsPct, 1)
+        XCTAssertTrue(noModelData.weekModelLimits.isEmpty)
+
+        let withModelLimits = """
+        Current session: 18% used · resets Nov 20 at 3:00pm
+        Current week (all models): 12% used · resets Nov 27 at 6:30am
+        Current week (Sonnet only): 24% used · resets Nov 27 at 6:30am
+        Current week (Opus): 5% used · resets Nov 27 at 6:30am
+        """
+        var withModelData = ClaudeUsageData()
+        ClaudeDataReader.shared.parseUsageText(withModelLimits, into: &withModelData)
+        XCTAssertTrue(withModelData.hasLiveStatus)
+        XCTAssertEqual(withModelData.weekModelLimits.count, 2)
+        XCTAssertEqual(withModelData.weekModelLimits[0], ClaudeModelWeeklyLimit(
+            label: "Sonnet only",
+            usedPct: 24,
+            resetText: "Nov 27 at 6:30am"
+        ))
+        XCTAssertEqual(withModelData.weekModelLimits[1], ClaudeModelWeeklyLimit(
+            label: "Opus",
+            usedPct: 5,
+            resetText: "Nov 27 at 6:30am"
+        ))
+    }
+
     func testTodayTokensMenuBarTextHidesLoneZero() {
         XCTAssertNil(UsageManager.todayTokensMenuBarText(total: 0, showTodayTokens: true, showQuota: true))
         XCTAssertEqual(UsageManager.todayTokensMenuBarText(total: 0, showTodayTokens: true, showQuota: false), "0")
@@ -250,6 +286,51 @@ final class UsageManagerTests: XCTestCase {
         XCTAssertTrue(data.quotaWindows.contains { $0.family == "Claude + GPT" && $0.cadence == .weekly })
         XCTAssertEqual(data.quotaWindows.first { $0.family == "Gemini" && $0.cadence == .weekly }?.remainingPercent, 25)
         XCTAssertEqual(data.quotaWindows.first { $0.family == "Gemini" && $0.cadence == .fiveHour }?.remainingPercent, 65)
+    }
+
+    func testAntigravityCLIQuotaKeepsDistinctGeminiSubgroupsSeparate() {
+        let json = """
+        {
+          "status": "SUCCESS",
+          "command": {
+            "name": "usage",
+            "data": {
+              "groups": [
+                {
+                  "name": "Gemini Models",
+                  "buckets": [
+                    {"id": "gemini-weekly", "name": "Weekly Limit Remaining", "window": "weekly", "remaining_fraction": 0.7731, "reset_time": "2026-11-26T14:11:32Z"},
+                    {"id": "gemini-5h", "name": "Five Hour Limit Remaining", "window": "5h", "remaining_fraction": 0.9662, "reset_time": "2026-11-20T08:00:37Z"}
+                  ]
+                },
+                {
+                  "name": "Claude and GPT models",
+                  "buckets": [
+                    {"id": "3p-weekly", "name": "Weekly Limit Remaining", "window": "weekly", "remaining_fraction": 1, "reset_time": "2026-11-27T03:36:08Z"},
+                    {"id": "3p-5h", "name": "Five Hour Limit Remaining", "window": "5h", "remaining_fraction": 1, "reset_time": "2026-11-20T08:36:08Z"}
+                  ]
+                },
+                {
+                  "name": "Gemini 4 Argon",
+                  "buckets": [
+                    {"id": "gemini-argon-wtu-weekly", "name": "Gemini 4 Argon Weekly Limit", "window": "weekly", "remaining_fraction": 0.87, "reset_time": "2026-11-26T15:44:06Z"}
+                  ]
+                }
+              ]
+            }
+          }
+        }
+        """
+
+        var data = AntigravityUsageData()
+        XCTAssertTrue(AntigravityDataReader.shared.parseCLIQuota(json, to: &data))
+        XCTAssertEqual(data.quotaWindows.count, 5)
+        XCTAssertEqual(Set(data.quotaWindows.map(\.id)).count, 5)
+        let geminiWeekly = data.quotaWindows.first { $0.family == "Gemini" && $0.cadence == .weekly }
+        let argonWeekly = data.quotaWindows.first { $0.family == "Gemini 4 Argon" && $0.cadence == .weekly }
+        XCTAssertEqual(geminiWeekly?.remainingPercent ?? -1, 77.31, accuracy: 0.01)
+        XCTAssertEqual(argonWeekly?.remainingPercent ?? -1, 87.0, accuracy: 0.01)
+        XCTAssertEqual(UsageManager.antigravityWeeklyMenuBarText(for: data), "23%")
     }
 
     func testAntigravityMenuBarRequiresFreshWeeklyQuota() {

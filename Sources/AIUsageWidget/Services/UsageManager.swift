@@ -166,9 +166,7 @@ class UsageManager: ObservableObject {
         merged.sessionReset = previous.sessionReset
         merged.weekAllModelsPct = previous.weekAllModelsPct
         merged.weekAllModelsReset = previous.weekAllModelsReset
-        merged.weekFablePct = previous.weekFablePct
-        merged.weekFableReset = previous.weekFableReset
-        merged.weekModelLabel = previous.weekModelLabel
+        merged.weekModelLimits = previous.weekModelLimits
         return merged
     }
 

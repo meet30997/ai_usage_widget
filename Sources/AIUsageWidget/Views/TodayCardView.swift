@@ -35,7 +35,6 @@ struct ClaudeStatusCard: View {
     var body: some View {
         let sessionPct = claude.sessionUsedPct
         let weekAllPct = claude.weekAllModelsPct
-        let weekFablePct = claude.weekFablePct
         
         GlowingBrandCard(
             brandGradient: MacTheme.claudeGradient,
@@ -95,16 +94,18 @@ struct ClaudeStatusCard: View {
                         accentGradient: progressGradient(usedPct: weekAllPct)
                     )
                     
-                    Divider().opacity(0.2)
-                    
-                    // Current Week (Fable)
-                    ProgressBarRow(
-                        label: "Current week (\(claude.weekModelLabel))",
-                        valueText: String(format: "%.0f%% used", weekFablePct),
-                        progressPct: weekFablePct,
-                        resetText: claude.weekFableReset.isEmpty ? nil : "resets \(claude.weekFableReset)",
-                        accentGradient: progressGradient(usedPct: weekFablePct)
-                    )
+                    // Model-specific weekly limits (only shown when Claude reports them)
+                    ForEach(Array(claude.weekModelLimits.enumerated()), id: \.offset) { _, limit in
+                        Divider().opacity(0.2)
+                        
+                        ProgressBarRow(
+                            label: "Current week (\(limit.label))",
+                            valueText: String(format: "%.0f%% used", limit.usedPct),
+                            progressPct: limit.usedPct,
+                            resetText: limit.resetText.isEmpty ? nil : "resets \(limit.resetText)",
+                            accentGradient: progressGradient(usedPct: limit.usedPct)
+                        )
+                    }
 
                     if claude.isStaleSnapshot {
                         Label("Last reading; couldn't reach the Claude CLI", systemImage: "clock.badge.exclamationmark")
@@ -342,6 +343,7 @@ struct ProgressBarRow: View {
     let progressPct: Double
     let resetText: String?
     let accentGradient: LinearGradient
+    var valueColor: Color? = nil
     
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -356,7 +358,7 @@ struct ProgressBarRow: View {
                 
                 Text(valueText)
                     .font(.system(size: 10.5, weight: .bold, design: .monospaced))
-                    .foregroundColor(progressTextColor(usedPct: progressPct))
+                    .foregroundColor(valueColor ?? progressTextColor(usedPct: progressPct))
                     .lineLimit(1)
             }
             

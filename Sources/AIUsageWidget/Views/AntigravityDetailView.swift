@@ -55,7 +55,7 @@ struct AntigravityStatusCard: View {
                             .multilineTextAlignment(.trailing)
                     }
                 } else {
-                    ForEach(Array(antigravity.quotaWindows.enumerated()), id: \.element.id) { index, window in
+                    ForEach(Array(antigravity.quotaWindows.enumerated()), id: \.offset) { index, window in
                         if index > 0 { Divider().opacity(0.2) }
                         if let remaining = window.remainingPercent {
                             let used = 100 - remaining
@@ -64,7 +64,8 @@ struct AntigravityStatusCard: View {
                                 valueText: String(format: "%.2f%% remaining", remaining),
                                 progressPct: remaining,
                                 resetText: window.resetText.isEmpty ? nil : window.resetText,
-                                accentGradient: progressGradient(usedPct: used)
+                                accentGradient: progressGradient(usedPct: used),
+                                valueColor: progressTextColor(usedPct: used)
                             )
                         } else {
                             HStack {
@@ -99,7 +100,7 @@ struct AntigravityDetailView: View {
 
                 HStack(spacing: 8) {
                     DetailCard(
-                        title: manager.antigravityData.historyIsPartial ? "Tracked Tokens*" : "Total Tokens",
+                        title: "Total Tokens",
                         value: UsageManager.formatTokens(manager.antigravityData.totalTokens),
                         icon: "bolt.ring.closed",
                         accentGradient: MacTheme.antigravityGradient,
@@ -113,65 +114,9 @@ struct AntigravityDetailView: View {
                         primaryColor: MacTheme.antigravityPrimary
                     )
                 }
-
-                if !manager.antigravityData.historyDiagnostic.isEmpty {
-                    Label(manager.antigravityData.historyDiagnostic, systemImage: manager.antigravityData.historyIsPartial ? "exclamationmark.triangle" : "info.circle")
-                        .font(.system(size: 9.5, weight: .medium))
-                        .foregroundColor(manager.antigravityData.historyIsPartial ? MacTheme.warning : .secondary)
-                }
-
-                sectionTitle("ANTIGRAVITY MODELS")
-                VStack(spacing: 6) {
-                    ForEach(manager.antigravityData.modelUsage) { model in
-                        GlassCard(cornerRadius: 10, padding: 8) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text(model.modelName)
-                                        .font(.system(size: 11, weight: .bold))
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Text(UsageManager.formatTokens(model.totalTokens))
-                                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                        .foregroundColor(MacTheme.antigravityPrimary)
-                                }
-                                HStack(spacing: 6) {
-                                    LabelBadge(label: "In", val: UsageManager.formatTokens(model.inputTokens))
-                                    LabelBadge(label: "Out", val: UsageManager.formatTokens(model.outputTokens))
-                                    LabelBadge(label: "Cache", val: UsageManager.formatTokens(model.cacheReadTokens))
-                                }
-                            }
-                        }
-                    }
-                }
-
-                sectionTitle("RECENT DAILY ACTIVITY")
-                VStack(spacing: 6) {
-                    ForEach(manager.antigravityData.dailyUsage.prefix(10)) { item in
-                        GlassCard(cornerRadius: 10, padding: 8) {
-                            HStack {
-                                Text(item.date)
-                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                Spacer()
-                                Text("\(item.sessionCount) session\(item.sessionCount == 1 ? "" : "s")")
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundColor(.secondary)
-                                Text(UsageManager.formatTokens(item.tokensUsed))
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundColor(MacTheme.antigravityPrimary)
-                            }
-                        }
-                    }
-                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
         }
-    }
-
-    private func sectionTitle(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 10, weight: .bold, design: .monospaced))
-            .foregroundColor(.secondary)
-            .tracking(0.5)
     }
 }
